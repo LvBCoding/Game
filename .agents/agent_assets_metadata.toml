@@ -1,0 +1,8 @@
+uploads = []
+outputs = []
+
+[[generated]]
+id = "l8kQOIdLB6hM1acHMld3S"
+uri = "file://artifacts/mobile/assets/images/icon.png"
+type = "image"
+title = "love blaster icon"
