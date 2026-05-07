@@ -26,6 +26,7 @@ export interface Upgrades {
   attackLevel:  number;   // each +1 = -0.22s fire interval (base 1.8s, min 0.5s)
   damageLevel:  number;   // each +1 = +1 HP damage (base 1)
   harvestLevel: number;   // each +1 = +1 heart per pickup (base 1)
+  healCount:    number;   // total heals purchased (scales heal cost)
 }
 
 export interface WaveClearSummary {
@@ -47,7 +48,7 @@ const INITIAL_HUD: HudState = {
   wave: 1, phase: "playing", gremlinsLeft: 8, gremlinsTotal: 8,
 };
 
-const INITIAL_UPGRADES: Upgrades = { attackLevel: 0, damageLevel: 0, harvestLevel: 0 };
+const INITIAL_UPGRADES: Upgrades = { attackLevel: 0, damageLevel: 0, harvestLevel: 0, healCount: 0 };
 
 export default function GameWorld() {
   const joystickRef   = useRef<JoystickState>({ dx: 0, dz: 0 });

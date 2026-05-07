@@ -29,7 +29,7 @@ function fireInterval(lvl: number) {
 function attackCost(lvl: number)  { return 10 + lvl * 8; }
 function damageCost(lvl: number)  { return 12 + lvl * 10; }
 function harvestCost(lvl: number) { return 8  + lvl * 6; }
-const HEAL_COST = 6;
+function healCost(count: number)  { return 6  + count * 4; }
 
 export function ShopScreen({
   wave, nextWave, initialHearts, initialGiantHp, upgrades, score, onStart,
@@ -48,7 +48,7 @@ export function ShopScreen({
       type === "attack"  ? attackCost(upgs.attackLevel)
       : type === "damage"  ? damageCost(upgs.damageLevel)
       : type === "harvest" ? harvestCost(upgs.harvestLevel)
-      : HEAL_COST;
+      : healCost(upgs.healCount);
 
     if (hearts < cost) return;
     if (type === "heal" && (healUsed || giantHp >= 100)) return;
@@ -58,6 +58,7 @@ export function ShopScreen({
     if (type === "heal") {
       setGiantHp(hp => Math.min(100, hp + 5));
       setHealUsed(true);
+      setUpgs(prev => ({ ...prev, healCount: prev.healCount + 1 }));
     } else {
       setUpgs(prev => ({
         ...prev,
@@ -131,8 +132,8 @@ export function ShopScreen({
           title="Heal Giant Heart"
           desc={`Giant Heart: ${giantHp} → ${Math.min(100, giantHp + 5)} HP`}
           level={-1}
-          cost={HEAL_COST}
-          canAfford={canAfford(HEAL_COST) && !healUsed && giantHp < 100}
+          cost={healCost(upgs.healCount)}
+          canAfford={canAfford(healCost(upgs.healCount)) && !healUsed && giantHp < 100}
           disabled={healUsed || giantHp >= 100}
           disabledReason={healUsed ? "Used this wave" : giantHp >= 100 ? "Already full" : undefined}
           onBuy={() => buy("heal")}
