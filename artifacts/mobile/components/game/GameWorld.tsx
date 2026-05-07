@@ -21,6 +21,7 @@ export interface HudState {
   gremlinsTotal:   number;
   magnetActive:    boolean;
   magnetTimer:     number;
+  gatlingCharge:   number;
 }
 
 export interface JoystickState {
@@ -56,6 +57,7 @@ const INITIAL_HUD: HudState = {
   giantHeartHp: 100, heartsCollected: 0, score: 0,
   wave: 1, phase: "playing", gremlinsLeft: 8, gremlinsTotal: 8,
   magnetActive: false, magnetTimer: 0,
+  gatlingCharge: 0,
 };
 
 const INITIAL_UPGRADES: Upgrades = {
@@ -157,7 +159,7 @@ export default function GameWorld() {
         {!shopOpen && (
           <>
             <Joystick joystickRef={joystickRef} />
-            <GameHUD hud={hud} onRestart={handleRestart} leaderboard={leaderboard} />
+            <GameHUD hud={hud} onRestart={handleRestart} leaderboard={leaderboard} playerClass={selectedClass} upgrades={upgrades} />
           </>
         )}
         {shopOpen && shopSummary && (

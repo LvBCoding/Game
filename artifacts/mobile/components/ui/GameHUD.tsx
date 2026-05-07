@@ -10,26 +10,52 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import type { HudState } from "@/components/game/GameWorld";
+import type { HudState, PlayerClass, Upgrades } from "@/components/game/GameWorld";
 import type { ScoreEntry } from "@/utils/leaderboard";
 
 interface Props {
   hud:         HudState;
   onRestart:   () => void;
   leaderboard: ScoreEntry[];
+  playerClass: PlayerClass;
+  upgrades:    Upgrades;
 }
 
-export function GameHUD({ hud, onRestart, leaderboard }: Props) {
+const MAX_HARVEST_LEVEL = 5;
+
+export function GameHUD({ hud, onRestart, leaderboard, playerClass, upgrades }: Props) {
   const insets = useSafeAreaInsets();
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
 
   const { giantHeartHp, heartsCollected, score, wave, phase,
-          gremlinsLeft, gremlinsTotal, magnetActive, magnetTimer } = hud;
-  const hpRatio       = Math.max(0, giantHeartHp) / 100;
-  const waveProgress  = Math.max(0, gremlinsTotal - gremlinsLeft) / Math.max(1, gremlinsTotal);
+          gremlinsLeft, gremlinsTotal, magnetActive, magnetTimer,
+          gatlingCharge } = hud;
+  const hpRatio      = Math.max(0, giantHeartHp) / 100;
+  const waveProgress = Math.max(0, gremlinsTotal - gremlinsLeft) / Math.max(1, gremlinsTotal);
 
-  // Find rank of current score in leaderboard (1-indexed, -1 if not present)
   const currentRank = leaderboard.findIndex(e => e.score === score && e.wave === wave) + 1;
+
+  const isPlaying = phase === "playing" || phase === "waveclear";
+
+  const classColor =
+    playerClass === "gatling" ? "#ff8800"
+    : playerClass === "sniper" ? "#00ddaa"
+    : "#5588ff";
+
+  // Build stat rows per class
+  const statRows: { icon: string; color: string; label: string; val: string }[] = [];
+  if (playerClass === "classic") {
+    statRows.push({ icon: "flash",        color: "#ffaa00", label: "Atk",  val: `Lv${upgrades.attackLevel}` });
+    statRows.push({ icon: "flame",        color: "#ff5500", label: "Dmg",  val: `Lv${upgrades.damageLevel}` });
+    statRows.push({ icon: "heart-circle", color: "#ff3388", label: "Hvst", val: `Lv${upgrades.harvestLevel}${upgrades.harvestLevel >= MAX_HARVEST_LEVEL ? "!" : ""}` });
+  } else if (playerClass === "gatling") {
+    statRows.push({ icon: "speedometer",  color: "#ff8800", label: "Chrg", val: `Lv${upgrades.cooldownLevel}` });
+    statRows.push({ icon: "heart-circle", color: "#ff3388", label: "Hvst", val: `Lv${upgrades.harvestLevel}${upgrades.harvestLevel >= MAX_HARVEST_LEVEL ? "!" : ""}` });
+  } else {
+    statRows.push({ icon: "expand",       color: "#00ddaa", label: "Size", val: `Lv${upgrades.bulletSizeLevel}` });
+    statRows.push({ icon: "rocket",       color: "#00aaff", label: "Spd",  val: `Lv${upgrades.bulletSpeedLevel}` });
+    statRows.push({ icon: "heart-circle", color: "#ff3388", label: "Hvst", val: `Lv${upgrades.harvestLevel}${upgrades.harvestLevel >= MAX_HARVEST_LEVEL ? "!" : ""}` });
+  }
 
   return (
     <>
@@ -58,6 +84,29 @@ export function GameHUD({ hud, onRestart, leaderboard }: Props) {
         <Text style={styles.scoreText}>{score}</Text>
       </View>
 
+      {/* Gatling spin-up gauge */}
+      {playerClass === "gatling" && isPlaying && (
+        <View style={styles.gaugeRow} pointerEvents="none">
+          <Ionicons name="reload" size={12} color="#ff8800" />
+          <Text style={styles.gaugeLabel}>SPIN</Text>
+          <View style={styles.gaugeBg}>
+            <View style={[
+              styles.gaugeFill,
+              {
+                width: `${gatlingCharge * 100}%` as any,
+                backgroundColor:
+                  gatlingCharge < 0.4 ? "#aa4400"
+                  : gatlingCharge < 0.75 ? "#ff8800"
+                  : "#ffdd00",
+              },
+            ]} />
+          </View>
+          <Text style={styles.gaugePct}>
+            {gatlingCharge >= 0.99 ? "MAX" : `${Math.round(gatlingCharge * 100)}%`}
+          </Text>
+        </View>
+      )}
+
       {/* Magnet active badge */}
       {magnetActive && (
         <View style={styles.magnetBadge} pointerEvents="none">
@@ -72,6 +121,23 @@ export function GameHUD({ hud, onRestart, leaderboard }: Props) {
         <Text style={styles.currencyNum}>{heartsCollected}</Text>
       </View>
 
+      {/* Stats sidebar — shown during play */}
+      {isPlaying && (
+        <View style={[styles.statsSidebar, { top: topPad + 82 + (playerClass === "gatling" ? 28 : 0) }]} pointerEvents="none">
+          <View style={[styles.sidebarTag, { borderColor: classColor + "55", backgroundColor: classColor + "11" }]}>
+            <Text style={[styles.sidebarClassName, { color: classColor }]}>
+              {playerClass === "classic" ? "HB" : playerClass === "gatling" ? "GG" : "SN"}
+            </Text>
+          </View>
+          {statRows.map((row, i) => (
+            <View key={i} style={styles.statRow}>
+              <Ionicons name={row.icon as any} size={13} color={row.color} />
+              <Text style={styles.statVal}>{row.val}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+
       {/* Game over */}
       {phase === "gameover" && (
         <View style={styles.overlay}>
@@ -84,7 +150,6 @@ export function GameHUD({ hud, onRestart, leaderboard }: Props) {
               </Text>
             )}
 
-            {/* Leaderboard */}
             <View style={styles.lbContainer}>
               <Text style={styles.lbTitle}>TOP SCORES</Text>
               <ScrollView style={styles.lbScroll} nestedScrollEnabled>
@@ -144,6 +209,23 @@ const styles = StyleSheet.create({
   gremlinCount: { color: "#8855cc", fontSize: 10, fontFamily: "Inter_500Medium", marginTop: 2 },
   scoreText:    { color: "#fff", fontSize: 19, fontFamily: "Inter_700Bold", minWidth: 36, textAlign: "right" },
 
+  gaugeRow: {
+    position: "absolute", top: 0, left: 0, right: 0,
+    flexDirection: "row", alignItems: "center", gap: 6,
+    paddingHorizontal: 14, paddingVertical: 5,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    zIndex: 10,
+    marginTop: 58,
+  },
+  gaugeLabel: { color: "#ff8800", fontSize: 9, fontFamily: "Inter_700Bold", letterSpacing: 2, minWidth: 26 },
+  gaugeBg: {
+    flex: 1, height: 8,
+    backgroundColor: "#1a0800", borderRadius: 4, overflow: "hidden",
+    borderWidth: 1, borderColor: "#884400",
+  },
+  gaugeFill: { height: "100%", borderRadius: 4 },
+  gaugePct: { color: "#ffcc88", fontSize: 10, fontFamily: "Inter_700Bold", minWidth: 32, textAlign: "right" },
+
   magnetBadge: {
     position: "absolute", top: 90, right: 14,
     flexDirection: "row", alignItems: "center", gap: 6,
@@ -160,6 +242,42 @@ const styles = StyleSheet.create({
     gap: 6, zIndex: 10,
   },
   currencyNum: { color: "#ff99cc", fontSize: 20, fontFamily: "Inter_700Bold" },
+
+  statsSidebar: {
+    position: "absolute",
+    right: 10,
+    zIndex: 10,
+    alignItems: "center",
+    gap: 6,
+  },
+  sidebarTag: {
+    borderRadius: 8,
+    borderWidth: 1,
+    paddingHorizontal: 5,
+    paddingVertical: 3,
+    marginBottom: 2,
+  },
+  sidebarClassName: {
+    fontSize: 9,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 1,
+  },
+  statRow: {
+    alignItems: "center",
+    gap: 2,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 5,
+    borderWidth: 1,
+    borderColor: "#2a0050",
+    minWidth: 40,
+  },
+  statVal: {
+    color: "#ccaaee",
+    fontSize: 10,
+    fontFamily: "Inter_600SemiBold",
+  },
 
   overlay: {
     ...StyleSheet.absoluteFillObject,

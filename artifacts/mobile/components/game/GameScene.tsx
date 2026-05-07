@@ -37,13 +37,16 @@ const CLASSIC_PROJ_RADIUS = 0.28;
 const MAX_HARVEST_LEVEL   = 5;
 
 // Gatling
-const GATLING_BASE_FIRE   = 2.5;
-const GATLING_MIN_FIRE    = 0.01;
-const GATLING_PROJ_SPEED  = 40;
-const GATLING_PROJ_RADIUS = 0.13;
-const GATLING_FIRE_RANGE  = 14;
-const GATLING_DAMAGE      = 0.1;
+const GATLING_BASE_FIRE    = 2.5;
+const GATLING_MIN_FIRE     = 0.01;
+const GATLING_PROJ_SPEED   = 40;
+const GATLING_PROJ_RADIUS  = 0.13;
+const GATLING_FIRE_RANGE   = 14;
+const GATLING_DAMAGE       = 0.1;
 const GATLING_NO_TGT_RESET = 1.0;
+const GATLING_DRIFT_RATE   = 0.22;   // interval drifts up this many sec/sec while targeting
+const GATLING_EFF_DECAY    = 0.09;   // ramp efficiency lost per shot fired
+const GATLING_EFF_MIN      = 0.15;   // minimum ramp efficiency
 
 // Sniper
 const SNIPER_BASE_FIRE    = 2.5;
@@ -88,6 +91,7 @@ interface GS {
   // Gatling-specific
   gatlingFireInt:   number;
   gatlingNoTgtT:    number;
+  gatlingRampEff:   number;
 }
 
 function initGS(wave = 1, giantHp = GIANT_HP_MAX, hearts = 0): GS {
@@ -104,6 +108,7 @@ function initGS(wave = 1, giantHp = GIANT_HP_MAX, hearts = 0): GS {
     magnetActive: false, magnetTimer: 0,
     gatlingFireInt: GATLING_BASE_FIRE,
     gatlingNoTgtT: 0,
+    gatlingRampEff: 1.0,
   };
 }
 
@@ -151,6 +156,9 @@ export function GameScene({ joystickRef, upgradesRef, nextWaveRef, playerClass, 
     gremlinsTotal:   g.gremlinsThisWave,
     magnetActive:    g.magnetActive,
     magnetTimer:     g.magnetTimer,
+    gatlingCharge:   Math.max(0, Math.min(1,
+      (GATLING_BASE_FIRE - g.gatlingFireInt) / (GATLING_BASE_FIRE - GATLING_MIN_FIRE)
+    )),
   });
 
   useFrame((state, rawDelta) => {
@@ -198,6 +206,7 @@ export function GameScene({ joystickRef, upgradesRef, nextWaveRef, playerClass, 
       g.magnetActive = false; g.magnetTimer = 0;
       g.gatlingFireInt = GATLING_BASE_FIRE;
       g.gatlingNoTgtT  = 0;
+      g.gatlingRampEff = 1.0;
       setGremlinIds([]); setProjIds([]); setMagnetIds([]);
       changed = true;
     }
@@ -345,22 +354,29 @@ export function GameScene({ joystickRef, upgradesRef, nextWaveRef, playerClass, 
 
       if (nearest) {
         g.gatlingNoTgtT = 0;
+        // Drift: interval slowly creeps back up even while targeting
+        g.gatlingFireInt = Math.min(GATLING_BASE_FIRE,
+          g.gatlingFireInt + GATLING_DRIFT_RATE * dt
+        );
         g.fireT -= dt;
         if (g.fireT <= 0) {
           g.fireT = g.gatlingFireInt;
-          // Ramp: reduce interval each shot
-          const reductionPct = 0.15 + upg.cooldownLevel * 0.05;
-          g.gatlingFireInt = Math.max(GATLING_MIN_FIRE, g.gatlingFireInt * (1 - reductionPct));
+          // Ramp: reduce interval each shot, efficiency decays per shot
+          const baseReduction = 0.25 + upg.cooldownLevel * 0.06;
+          const reductionPct  = baseReduction * g.gatlingRampEff;
+          g.gatlingFireInt    = Math.max(GATLING_MIN_FIRE, g.gatlingFireInt * (1 - reductionPct));
+          g.gatlingRampEff    = Math.max(GATLING_EFF_MIN, g.gatlingRampEff - GATLING_EFF_DECAY);
           _dir.subVectors(nearest.pos, g.player.pos).normalize();
           g.player.facing = Math.atan2(_dir.x, _dir.z);
           g.projs.push({ id: uid(), pos: new THREE.Vector3(g.player.pos.x, 0.8, g.player.pos.z), dir: _dir.clone() });
           changed = true;
         }
       } else {
-        // No target — count time
+        // No target — count time, then reset
         g.gatlingNoTgtT += dt;
         if (g.gatlingNoTgtT >= GATLING_NO_TGT_RESET) {
           g.gatlingFireInt = GATLING_BASE_FIRE;
+          g.gatlingRampEff = 1.0;
           g.fireT = g.gatlingFireInt;
         }
       }
