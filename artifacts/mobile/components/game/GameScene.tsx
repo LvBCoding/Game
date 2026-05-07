@@ -89,9 +89,10 @@ interface GS {
   magnetActive:     boolean;
   magnetTimer:      number;
   // Gatling-specific
-  gatlingFireInt:   number;
-  gatlingNoTgtT:    number;
-  gatlingRampEff:   number;
+  gatlingFireInt:        number;
+  gatlingNoTgtT:         number;
+  gatlingRampEff:        number;
+  gatlingWaveClearTarget: number;
 }
 
 function initGS(wave = 1, giantHp = GIANT_HP_MAX, hearts = 0): GS {
@@ -109,6 +110,7 @@ function initGS(wave = 1, giantHp = GIANT_HP_MAX, hearts = 0): GS {
     gatlingFireInt: GATLING_BASE_FIRE,
     gatlingNoTgtT: 0,
     gatlingRampEff: 1.0,
+    gatlingWaveClearTarget: GATLING_BASE_FIRE,
   };
 }
 
@@ -204,8 +206,8 @@ export function GameScene({ joystickRef, upgradesRef, nextWaveRef, playerClass, 
       g.fireT    = 1.0;
       g.gremlins = []; g.projs = []; g.magnets = [];
       g.magnetActive = false; g.magnetTimer = 0;
-      // Keep 30% of built-up speed into the next wave
-      g.gatlingFireInt = GATLING_BASE_FIRE * 0.7 + g.gatlingFireInt * 0.3;
+      // Snap to the pre-computed 30%-retained target (bar may have already animated there)
+      g.gatlingFireInt = g.gatlingWaveClearTarget;
       g.gatlingNoTgtT  = 0;
       g.gatlingRampEff = 1.0;
       setGremlinIds([]); setProjIds([]); setMagnetIds([]);
@@ -219,6 +221,8 @@ export function GameScene({ joystickRef, upgradesRef, nextWaveRef, playerClass, 
         !g.waveClearCalled) {
       g.waveClearCalled = true;
       g.phase = "waveclear";
+      // Target = 30% of built-up speed retained
+      g.gatlingWaveClearTarget = GATLING_BASE_FIRE * 0.7 + g.gatlingFireInt * 0.3;
       onWaveClear({ heartsCollected: g.heartsCollected, giantHp: g.giantHp, wave: g.wave, score: g.score });
     }
 
@@ -227,13 +231,18 @@ export function GameScene({ joystickRef, upgradesRef, nextWaveRef, playerClass, 
         const m = heartMap.current.get(h.id);
         if (m) m.position.y = 0.5 + Math.sin(t * 2.5 + h.bob) * 0.2;
       });
+      // Gatling: slowly drain gauge toward the 30%-retained target (1% per 0.2s)
+      if (playerClass === "gatling" && g.gatlingFireInt < g.gatlingWaveClearTarget) {
+        const drainRate = (GATLING_BASE_FIRE - GATLING_MIN_FIRE) * 0.05; // 5%/s = 1% per 0.2s
+        g.gatlingFireInt = Math.min(g.gatlingWaveClearTarget, g.gatlingFireInt + drainRate * dt);
+      }
       camera.up.set(0, 0, -1);
       if (playerClass === "sniper") {
         camera.lookAt(0, 0, 0);
       } else {
         camera.lookAt(g.player.pos.x, 0, g.player.pos.z);
       }
-      if (g.frameN % 4 === 0) onHudUpdate(buildHudState(g));
+      if (g.frameN % 2 === 0) onHudUpdate(buildHudState(g));
       return;
     }
 
