@@ -42,7 +42,7 @@ const GATLING_MIN_FIRE     = 0.01;
 const GATLING_PROJ_SPEED   = 40;
 const GATLING_PROJ_RADIUS  = 0.13;
 const GATLING_FIRE_RANGE   = 14;
-const GATLING_DAMAGE       = 0.1;
+const GATLING_DAMAGE       = 0.2;
 const GATLING_NO_TGT_RESET = 1.0;
 const GATLING_DRIFT_RATE   = 0.22;   // interval drifts up this many sec/sec while targeting
 const GATLING_EFF_DECAY    = 0.09;   // ramp efficiency lost per shot fired
@@ -204,7 +204,8 @@ export function GameScene({ joystickRef, upgradesRef, nextWaveRef, playerClass, 
       g.fireT    = 1.0;
       g.gremlins = []; g.projs = []; g.magnets = [];
       g.magnetActive = false; g.magnetTimer = 0;
-      g.gatlingFireInt = GATLING_BASE_FIRE;
+      // Keep 30% of built-up speed into the next wave
+      g.gatlingFireInt = GATLING_BASE_FIRE * 0.7 + g.gatlingFireInt * 0.3;
       g.gatlingNoTgtT  = 0;
       g.gatlingRampEff = 1.0;
       setGremlinIds([]); setProjIds([]); setMagnetIds([]);
@@ -275,6 +276,14 @@ export function GameScene({ joystickRef, upgradesRef, nextWaveRef, playerClass, 
       g.player.pos.x = Math.max(-ARENA, Math.min(ARENA, g.player.pos.x + joy.dx * sp));
       g.player.pos.z = Math.max(-ARENA, Math.min(ARENA, g.player.pos.z + joy.dz * sp));
       g.player.facing = Math.atan2(joy.dx, joy.dz);
+    }
+
+    // ── Block player from inside the Giant Heart ──────────────────────────────
+    const _centerDist = Math.sqrt(g.player.pos.x * g.player.pos.x + g.player.pos.z * g.player.pos.z);
+    if (_centerDist < 3.5 && _centerDist > 0.001) {
+      const _pushScale = 3.5 / _centerDist;
+      g.player.pos.x *= _pushScale;
+      g.player.pos.z *= _pushScale;
     }
 
     // ── Magnet pickups ────────────────────────────────────────────────────────
@@ -355,8 +364,10 @@ export function GameScene({ joystickRef, upgradesRef, nextWaveRef, playerClass, 
       if (nearest) {
         g.gatlingNoTgtT = 0;
         g.fireT -= dt;
-        if (g.fireT <= 0) {
-          g.fireT = g.gatlingFireInt;
+        let _gShotsThisFrame = 0;
+        while (g.fireT <= 0 && _gShotsThisFrame < 5) {
+          _gShotsThisFrame++;
+          g.fireT += g.gatlingFireInt;
           // Ramp: reduce interval each shot, efficiency decays per shot
           const baseReduction = 0.25 + upg.cooldownLevel * 0.06;
           const reductionPct  = baseReduction * g.gatlingRampEff;
