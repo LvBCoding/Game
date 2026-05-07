@@ -164,10 +164,17 @@ export function GameScene({ joystickRef, upgradesRef, nextWaveRef, playerClass, 
 
     // ── Gameover ──────────────────────────────────────────────────────────────
     if (g.phase === "gameover") {
-      _camTgt.set(g.player.pos.x, 32, g.player.pos.z);
-      camera.position.lerp(_camTgt, Math.min(dt * 5, 1));
-      camera.up.set(0, 0, -1);
-      camera.lookAt(g.player.pos.x, 0, g.player.pos.z);
+      if (playerClass === "sniper") {
+        _camTgt.set(0, 75, 0.001);
+        camera.position.lerp(_camTgt, Math.min(dt * 3, 1));
+        camera.up.set(0, 0, -1);
+        camera.lookAt(0, 0, 0);
+      } else {
+        _camTgt.set(g.player.pos.x, 32, g.player.pos.z);
+        camera.position.lerp(_camTgt, Math.min(dt * 5, 1));
+        camera.up.set(0, 0, -1);
+        camera.lookAt(g.player.pos.x, 0, g.player.pos.z);
+      }
       onHudUpdate(buildHudState(g));
       return;
     }
@@ -211,7 +218,11 @@ export function GameScene({ joystickRef, upgradesRef, nextWaveRef, playerClass, 
         if (m) m.position.y = 0.5 + Math.sin(t * 2.5 + h.bob) * 0.2;
       });
       camera.up.set(0, 0, -1);
-      camera.lookAt(g.player.pos.x, 0, g.player.pos.z);
+      if (playerClass === "sniper") {
+        camera.lookAt(0, 0, 0);
+      } else {
+        camera.lookAt(g.player.pos.x, 0, g.player.pos.z);
+      }
       if (g.frameN % 4 === 0) onHudUpdate(buildHudState(g));
       return;
     }
@@ -466,10 +477,18 @@ export function GameScene({ joystickRef, upgradesRef, nextWaveRef, playerClass, 
     }
 
     // ── Top-down camera ───────────────────────────────────────────────────────
-    _camTgt.set(g.player.pos.x, 32, g.player.pos.z);
-    camera.position.lerp(_camTgt, Math.min(dt * 5, 1));
-    camera.up.set(0, 0, -1);
-    camera.lookAt(g.player.pos.x, 0, g.player.pos.z);
+    if (playerClass === "sniper") {
+      // Fixed overhead view of the entire arena
+      _camTgt.set(0, 75, 0.001);
+      camera.position.lerp(_camTgt, Math.min(dt * 3, 1));
+      camera.up.set(0, 0, -1);
+      camera.lookAt(0, 0, 0);
+    } else {
+      _camTgt.set(g.player.pos.x, 32, g.player.pos.z);
+      camera.position.lerp(_camTgt, Math.min(dt * 5, 1));
+      camera.up.set(0, 0, -1);
+      camera.lookAt(g.player.pos.x, 0, g.player.pos.z);
+    }
 
     // ── HUD ───────────────────────────────────────────────────────────────────
     if (g.frameN % 2 === 0 || g.phase === "gameover") {
