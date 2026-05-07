@@ -6,3 +6,21 @@ id = "l8kQOIdLB6hM1acHMld3S"
 uri = "file://artifacts/mobile/assets/images/icon.png"
 type = "image"
 title = "love blaster icon"
+
+[[generated]]
+id = "FvzPDlpZYG5vUHEzRsCW8"
+uri = "file://artifacts/mobile/assets/images/heart.png"
+type = "image"
+title = "heart sprite placeholder"
+
+[[generated]]
+id = "Ggyh80O5IdOhln-QMvLk3"
+uri = "file://artifacts/mobile/assets/images/gremlin.png"
+type = "image"
+title = "gremlin sprite placeholder"
+
+[[generated]]
+id = "UqjbN6Jlwzpkzy7MwDHUh"
+uri = "file://artifacts/mobile/assets/images/projectile.png"
+type = "image"
+title = "love projectile placeholder"
