@@ -16,6 +16,7 @@ const ARENA           = 24;
 const PLAYER_SPEED    = 8;
 const PROJ_SPEED      = 24;
 const PICKUP_R        = 2.2;
+const MAGNET_PICKUP_R = 1.8;
 const GREMLIN_HIT_R   = 1.3;
 const GIANT_ATTACK_R  = 2.9;
 const GIANT_HP_MAX    = 100;
@@ -23,25 +24,30 @@ const GREMLIN_DMG     = 20;
 const HEART_INTERVAL  = 1.8;
 const MAX_GREMLINS    = 18;
 const MAX_HEARTS      = 14;
-const FIRE_RANGE      = 14;   // max auto-fire range in units
-const BASE_FIRE_INT   = 1.8;  // base auto-fire interval (seconds)
+const FIRE_RANGE      = 14;
+const BASE_FIRE_INT   = 1.8;
 const MIN_FIRE_INT    = 0.5;
+const MAGNET_DURATION = 3.5;  // seconds magnet stays active
+const MAGNET_SUCTION  = 18;   // units/sec hearts move toward player
+const MAGNET_DROP_CHANCE = 0.01; // 1% per gremlin kill
 
-function gremlinsForWave(w: number)  { return 8 + (w - 1) * 5; }
-function gremlinHpForWave(w: number) { return 1 + Math.floor(w / 5); }
-function spawnIntervalForWave(w: number) { return Math.max(0.8, 2.4 - (w - 1) * 0.2); }
+function gremlinsForWave(w: number)     { return 8 + (w - 1) * 5; }
+function gremlinHpForWave(w: number)    { return 1 + Math.floor(w / 5); }
+function spawnIntervalForWave(w: number){ return Math.max(0.8, 2.4 - (w - 1) * 0.2); }
 function gremlinSpeedForWave(w: number) { return 1.4 + (w - 1) * 0.28; }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface GremlinData { id: string; pos: THREE.Vector3; hp: number; maxHp: number }
 interface HeartData   { id: string; pos: THREE.Vector3; bob: number }
 interface ProjData    { id: string; pos: THREE.Vector3; dir: THREE.Vector3 }
+interface MagnetData  { id: string; pos: THREE.Vector3 }
 
 interface GS {
   player:          { pos: THREE.Vector3; facing: number };
   gremlins:        GremlinData[];
   hearts:          HeartData[];
   projs:           ProjData[];
+  magnets:         MagnetData[];
   giantHp:         number;
   heartsCollected: number;
   score:           number;
@@ -52,31 +58,31 @@ interface GS {
   heartT:          number;
   gremlinT:        number;
   fireT:           number;
-  // Wave tracking
   gremlinsThisWave: number;
   gremlinsSpawned:  number;
   gremlinsKilled:   number;
   waveClearCalled:  boolean;
+  magnetActive:     boolean;
+  magnetTimer:      number;
 }
 
 function initGS(wave = 1, giantHp = GIANT_HP_MAX, hearts = 0): GS {
   return {
     player: { pos: new THREE.Vector3(0, 0, 8), facing: 0 },
-    gremlins: [], hearts: [], projs: [],
-    giantHp,
-    heartsCollected: hearts,
-    score: 0, wave,
+    gremlins: [], hearts: [], projs: [], magnets: [],
+    giantHp, heartsCollected: hearts, score: 0, wave,
     phase: "playing",
     frameN: 0, uid: 0,
     heartT: 1.2, gremlinT: 2.0, fireT: 1.0,
     gremlinsThisWave: gremlinsForWave(wave),
-    gremlinsSpawned: 0,
-    gremlinsKilled: 0,
+    gremlinsSpawned: 0, gremlinsKilled: 0,
     waveClearCalled: false,
+    magnetActive: false, magnetTimer: 0,
   };
 }
 
 const _dir    = new THREE.Vector3();
+const _mag    = new THREE.Vector3();
 const _camTgt = new THREE.Vector3();
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -99,12 +105,26 @@ export function GameScene({ joystickRef, upgradesRef, nextWaveRef, onHudUpdate, 
   const [gremlinIds, setGremlinIds] = useState<string[]>([]);
   const [heartIds,   setHeartIds]   = useState<string[]>([]);
   const [projIds,    setProjIds]    = useState<string[]>([]);
+  const [magnetIds,  setMagnetIds]  = useState<string[]>([]);
 
   const playerMesh = useRef<THREE.Mesh>(null);
   const giantMesh  = useRef<THREE.Mesh>(null);
   const gremlinMap = useRef<Map<string, THREE.Group>>(new Map());
   const heartMap   = useRef<Map<string, THREE.Mesh>>(new Map());
   const projMap    = useRef<Map<string, THREE.Mesh>>(new Map());
+  const magnetMMap = useRef<Map<string, THREE.Mesh>>(new Map());
+
+  const buildHudState = (g: GS): HudState => ({
+    giantHeartHp:    g.giantHp,
+    heartsCollected: g.heartsCollected,
+    score:           g.score,
+    wave:            g.wave,
+    phase:           g.phase,
+    gremlinsLeft:    Math.max(0, g.gremlinsThisWave - g.gremlinsKilled),
+    gremlinsTotal:   g.gremlinsThisWave,
+    magnetActive:    g.magnetActive,
+    magnetTimer:     g.magnetTimer,
+  });
 
   useFrame((state, rawDelta) => {
     const g = gs.current;
@@ -115,33 +135,36 @@ export function GameScene({ joystickRef, upgradesRef, nextWaveRef, onHudUpdate, 
     const uid = () => String(++g.uid);
     const upg = upgradesRef.current;
 
-    // ── Next-wave signal ──────────────────────────────────────────────────────
-    if (g.phase === "waveclear" && nextWaveRef.current.ready) {
-      const nw = nextWaveRef.current;
-      nextWaveRef.current = { ...nw, ready: false };
-      g.wave            = nw.wave;
-      g.giantHp         = Math.min(GIANT_HP_MAX, nw.giantHp);
-      g.heartsCollected = nw.hearts;
-      g.gremlinsThisWave = gremlinsForWave(nw.wave);
-      g.gremlinsSpawned  = 0;
-      g.gremlinsKilled   = 0;
-      g.waveClearCalled  = false;
-      g.phase  = "playing";
-      g.heartT = 1.2;
-      g.gremlinT = 2.0;
-      g.fireT  = 1.0;
-      g.gremlins = []; g.projs = [];
-      setGremlinIds([]); setProjIds([]);
-      changed = true;
-    }
-
+    // ── Gameover: keep camera alive, ensure HUD fires ─────────────────────────
     if (g.phase === "gameover") {
-      // Still update camera so scene isn't frozen
       _camTgt.set(g.player.pos.x, 32, g.player.pos.z);
       camera.position.lerp(_camTgt, Math.min(dt * 5, 1));
       camera.up.set(0, 0, -1);
       camera.lookAt(g.player.pos.x, 0, g.player.pos.z);
+      // Always push HUD so overlay renders even if gameover was set on an odd frame
+      onHudUpdate(buildHudState(g));
       return;
+    }
+
+    // ── Next-wave signal ──────────────────────────────────────────────────────
+    if (g.phase === "waveclear" && nextWaveRef.current.ready) {
+      const nw = nextWaveRef.current;
+      nextWaveRef.current = { ...nw, ready: false };
+      g.wave             = nw.wave;
+      g.giantHp          = Math.min(GIANT_HP_MAX, nw.giantHp);
+      g.heartsCollected  = nw.hearts;
+      g.gremlinsThisWave = gremlinsForWave(nw.wave);
+      g.gremlinsSpawned  = 0;
+      g.gremlinsKilled   = 0;
+      g.waveClearCalled  = false;
+      g.phase    = "playing";
+      g.heartT   = 1.2;
+      g.gremlinT = 2.0;
+      g.fireT    = 1.0;
+      g.gremlins = []; g.projs = []; g.magnets = [];
+      g.magnetActive = false; g.magnetTimer = 0;
+      setGremlinIds([]); setProjIds([]); setMagnetIds([]);
+      changed = true;
     }
 
     // ── Wave clear check ──────────────────────────────────────────────────────
@@ -151,22 +174,18 @@ export function GameScene({ joystickRef, upgradesRef, nextWaveRef, onHudUpdate, 
         !g.waveClearCalled) {
       g.waveClearCalled = true;
       g.phase = "waveclear";
-      onWaveClear({
-        heartsCollected: g.heartsCollected,
-        giantHp:         g.giantHp,
-        wave:            g.wave,
-        score:           g.score,
-      });
+      onWaveClear({ heartsCollected: g.heartsCollected, giantHp: g.giantHp, wave: g.wave, score: g.score });
     }
 
     if (g.phase !== "playing") {
-      // Animate hearts bobbing in background during shop
+      // Animate in background during shop
       g.hearts.forEach(h => {
         const m = heartMap.current.get(h.id);
         if (m) m.position.y = 0.5 + Math.sin(t * 2.5 + h.bob) * 0.2;
       });
       camera.up.set(0, 0, -1);
       camera.lookAt(g.player.pos.x, 0, g.player.pos.z);
+      if (g.frameN % 4 === 0) onHudUpdate(buildHudState(g));
       return;
     }
 
@@ -186,9 +205,7 @@ export function GameScene({ joystickRef, upgradesRef, nextWaveRef, onHudUpdate, 
 
     // ── Spawn gremlins ────────────────────────────────────────────────────────
     g.gremlinT -= dt;
-    if (g.gremlinT <= 0 &&
-        g.gremlins.length < MAX_GREMLINS &&
-        g.gremlinsSpawned < g.gremlinsThisWave) {
+    if (g.gremlinT <= 0 && g.gremlins.length < MAX_GREMLINS && g.gremlinsSpawned < g.gremlinsThisWave) {
       g.gremlinT = spawnIntervalForWave(g.wave);
       const side = Math.floor(Math.random() * 4);
       const e = ARENA + 1;
@@ -213,17 +230,53 @@ export function GameScene({ joystickRef, upgradesRef, nextWaveRef, onHudUpdate, 
       g.player.facing = Math.atan2(joy.dx, joy.dz);
     }
 
-    // ── Heart pickups ─────────────────────────────────────────────────────────
-    for (let i = g.hearts.length - 1; i >= 0; i--) {
-      if (g.player.pos.distanceTo(g.hearts[i].pos) < PICKUP_R) {
-        g.hearts.splice(i, 1);
-        g.heartsCollected += 1 + upg.harvestLevel;
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    // ── Magnet pickups ────────────────────────────────────────────────────────
+    for (let i = g.magnets.length - 1; i >= 0; i--) {
+      if (g.player.pos.distanceTo(g.magnets[i].pos) < MAGNET_PICKUP_R) {
+        g.magnets.splice(i, 1);
+        g.magnetActive = true;
+        g.magnetTimer  = MAGNET_DURATION;
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
         changed = true;
       }
     }
 
-    // ── Auto-fire (ranged, upgradeable interval) ──────────────────────────────
+    // ── Magnet suction effect ─────────────────────────────────────────────────
+    if (g.magnetActive) {
+      g.magnetTimer -= dt;
+      if (g.magnetTimer <= 0) {
+        g.magnetActive = false;
+        g.magnetTimer  = 0;
+      } else {
+        for (let i = g.hearts.length - 1; i >= 0; i--) {
+          const h = g.hearts[i];
+          _mag.subVectors(g.player.pos, h.pos);
+          const dist = _mag.length();
+          if (dist < 0.6) {
+            g.hearts.splice(i, 1);
+            g.heartsCollected += 1 + upg.harvestLevel;
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            changed = true;
+          } else {
+            h.pos.addScaledVector(_mag.normalize(), Math.min(MAGNET_SUCTION * dt, dist));
+          }
+        }
+      }
+    }
+
+    // ── Normal heart pickups ──────────────────────────────────────────────────
+    if (!g.magnetActive) {
+      for (let i = g.hearts.length - 1; i >= 0; i--) {
+        if (g.player.pos.distanceTo(g.hearts[i].pos) < PICKUP_R) {
+          g.hearts.splice(i, 1);
+          g.heartsCollected += 1 + upg.harvestLevel;
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          changed = true;
+        }
+      }
+    }
+
+    // ── Auto-fire ─────────────────────────────────────────────────────────────
     const fireInt = Math.max(MIN_FIRE_INT, BASE_FIRE_INT - upg.attackLevel * 0.22);
     g.fireT -= dt;
     if (g.fireT <= 0) {
@@ -237,11 +290,7 @@ export function GameScene({ joystickRef, upgradesRef, nextWaveRef, onHudUpdate, 
       if (nearest) {
         _dir.subVectors(nearest.pos, g.player.pos).normalize();
         g.player.facing = Math.atan2(_dir.x, _dir.z);
-        g.projs.push({
-          id: uid(),
-          pos: new THREE.Vector3(g.player.pos.x, 0.8, g.player.pos.z),
-          dir: _dir.clone(),
-        });
+        g.projs.push({ id: uid(), pos: new THREE.Vector3(g.player.pos.x, 0.8, g.player.pos.z), dir: _dir.clone() });
         changed = true;
       }
     }
@@ -262,9 +311,9 @@ export function GameScene({ joystickRef, upgradesRef, nextWaveRef, onHudUpdate, 
       }
     }
 
-    // ── Move projectiles + collision ──────────────────────────────────────────
+    // ── Projectiles + collision ───────────────────────────────────────────────
     const projDmg = 1 + upg.damageLevel;
-    const pSpd = PROJ_SPEED * dt;
+    const pSpd    = PROJ_SPEED * dt;
     for (let pi = g.projs.length - 1; pi >= 0; pi--) {
       const p = g.projs[pi];
       p.pos.addScaledVector(p.dir, pSpd);
@@ -276,10 +325,15 @@ export function GameScene({ joystickRef, upgradesRef, nextWaveRef, onHudUpdate, 
         if (p.pos.distanceTo(g.gremlins[gi].pos) < GREMLIN_HIT_R) {
           g.gremlins[gi].hp -= projDmg;
           if (g.gremlins[gi].hp <= 0) {
+            const deadPos = g.gremlins[gi].pos.clone();
             g.gremlins.splice(gi, 1);
             g.gremlinsKilled++;
             g.score += 10;
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            // 1% chance to drop a magnet
+            if (Math.random() < MAGNET_DROP_CHANCE) {
+              g.magnets.push({ id: uid(), pos: deadPos });
+            }
           }
           hit = true; break;
         }
@@ -287,7 +341,7 @@ export function GameScene({ joystickRef, upgradesRef, nextWaveRef, onHudUpdate, 
       if (hit) { g.projs.splice(pi, 1); changed = true; }
     }
 
-    // ── Update mesh positions ─────────────────────────────────────────────────
+    // ── Mesh transforms ───────────────────────────────────────────────────────
     if (playerMesh.current) {
       playerMesh.current.position.set(g.player.pos.x, 0.75, g.player.pos.z);
       playerMesh.current.rotation.y = g.player.facing;
@@ -307,36 +361,36 @@ export function GameScene({ joystickRef, upgradesRef, nextWaveRef, onHudUpdate, 
       const m = projMap.current.get(p.id);
       if (m) m.position.copy(p.pos);
     }
-
+    for (const mg of g.magnets) {
+      const m = magnetMMap.current.get(mg.id);
+      if (m) {
+        m.position.set(mg.pos.x, 0.9 + Math.sin(t * 4) * 0.15, mg.pos.z);
+        m.rotation.y = t * 4;
+        m.rotation.x = t * 2;
+      }
+    }
     if (giantMesh.current) {
       giantMesh.current.scale.setScalar(1 + Math.sin(t * 2.2) * 0.07);
       const r = g.giantHp / GIANT_HP_MAX;
       (giantMesh.current.material as THREE.MeshLambertMaterial).color.setRGB(1, r * 0.08, r * 0.18);
     }
 
-    // ── Camera ────────────────────────────────────────────────────────────────
+    // ── Top-down camera ───────────────────────────────────────────────────────
     _camTgt.set(g.player.pos.x, 32, g.player.pos.z);
     camera.position.lerp(_camTgt, Math.min(dt * 5, 1));
     camera.up.set(0, 0, -1);
     camera.lookAt(g.player.pos.x, 0, g.player.pos.z);
 
-    // ── HUD update ────────────────────────────────────────────────────────────
-    if (g.frameN % 2 === 0) {
-      onHudUpdate({
-        giantHeartHp:    g.giantHp,
-        heartsCollected: g.heartsCollected,
-        score:           g.score,
-        wave:            g.wave,
-        phase:           g.phase,
-        gremlinsLeft:    g.gremlinsThisWave - g.gremlinsKilled,
-        gremlinsTotal:   g.gremlinsThisWave,
-      });
+    // ── HUD ───────────────────────────────────────────────────────────────────
+    if (g.frameN % 2 === 0 || g.phase === "gameover") {
+      onHudUpdate(buildHudState(g));
     }
 
     if (changed) {
       setGremlinIds(g.gremlins.map(x => x.id));
       setHeartIds(g.hearts.map(x => x.id));
       setProjIds(g.projs.map(x => x.id));
+      setMagnetIds(g.magnets.map(x => x.id));
     }
   });
 
@@ -402,6 +456,16 @@ export function GameScene({ joystickRef, upgradesRef, nextWaveRef, onHudUpdate, 
         }}>
           <sphereGeometry args={[0.45, 12, 12]} />
           <meshLambertMaterial color="#ff3388" emissive="#ff1155" emissiveIntensity={0.8} />
+        </mesh>
+      ))}
+
+      {/* Magnet drops — gold spinning octahedron */}
+      {magnetIds.map(id => (
+        <mesh key={id} ref={(el: THREE.Mesh | null) => {
+          if (el) magnetMMap.current.set(id, el); else magnetMMap.current.delete(id);
+        }}>
+          <octahedronGeometry args={[0.55, 0]} />
+          <meshLambertMaterial color="#ffdd00" emissive="#ffaa00" emissiveIntensity={2.0} />
         </mesh>
       ))}
 
