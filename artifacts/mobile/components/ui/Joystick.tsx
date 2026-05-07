@@ -1,5 +1,6 @@
 import React, { useRef, useState } from "react";
 import {
+  Dimensions,
   PanResponder,
   Platform,
   StyleSheet,
@@ -9,8 +10,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import type { JoystickState } from "@/components/game/GameWorld";
 
-const BASE_R = 60;
-const KNOB_R = 26;
+const { width: SW } = Dimensions.get("window");
+
+const BASE_R = 64;
+const KNOB_R = 28;
 const MAX_DIST = BASE_R - KNOB_R;
 
 interface Props {
@@ -20,20 +23,14 @@ interface Props {
 export function Joystick({ joystickRef }: Props) {
   const insets = useSafeAreaInsets();
   const [knob, setKnob] = useState({ x: 0, y: 0 });
-  const active = useRef(false);
 
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: () => {
-        active.current = true;
-      },
       onPanResponderMove: (_, state) => {
-        const rawX = state.dx;
-        const rawY = state.dy;
-        const dist = Math.min(Math.hypot(rawX, rawY), MAX_DIST);
-        const angle = Math.atan2(rawY, rawX);
+        const dist = Math.min(Math.hypot(state.dx, state.dy), MAX_DIST);
+        const angle = Math.atan2(state.dy, state.dx);
         const kx = Math.cos(angle) * dist;
         const ky = Math.sin(angle) * dist;
         setKnob({ x: kx, y: ky });
@@ -43,12 +40,10 @@ export function Joystick({ joystickRef }: Props) {
         };
       },
       onPanResponderRelease: () => {
-        active.current = false;
         setKnob({ x: 0, y: 0 });
         joystickRef.current = { dx: 0, dz: 0 };
       },
       onPanResponderTerminate: () => {
-        active.current = false;
         setKnob({ x: 0, y: 0 });
         joystickRef.current = { dx: 0, dz: 0 };
       },
@@ -60,10 +55,10 @@ export function Joystick({ joystickRef }: Props) {
   return (
     <View
       style={[
-        styles.joystickBase,
+        styles.base,
         {
-          bottom: botPad + 110,
-          left: 32,
+          bottom: botPad + 60,
+          left: SW / 2 - BASE_R,
           width: BASE_R * 2,
           height: BASE_R * 2,
           borderRadius: BASE_R,
@@ -87,16 +82,16 @@ export function Joystick({ joystickRef }: Props) {
 }
 
 const styles = StyleSheet.create({
-  joystickBase: {
+  base: {
     position: "absolute",
-    backgroundColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "rgba(255,255,255,0.07)",
     borderWidth: 2,
-    borderColor: "rgba(255,51,102,0.4)",
+    borderColor: "rgba(255,51,102,0.35)",
     justifyContent: "center",
     alignItems: "center",
   },
   knob: {
-    backgroundColor: "rgba(255,51,102,0.75)",
+    backgroundColor: "rgba(255,51,102,0.7)",
     borderWidth: 2,
     borderColor: "#ff99cc",
   },
