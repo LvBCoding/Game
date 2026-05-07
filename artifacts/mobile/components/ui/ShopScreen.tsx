@@ -10,7 +10,9 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import type { Upgrades } from "@/components/game/GameWorld";
+import type { PlayerClass, Upgrades } from "@/components/game/GameWorld";
+
+const MAX_HARVEST_LEVEL = 5;
 
 interface Props {
   wave:            number;
@@ -19,20 +21,24 @@ interface Props {
   initialGiantHp:  number;
   upgrades:        Upgrades;
   score:           number;
+  playerClass:     PlayerClass;
   onStart: (remainingHearts: number, upgrades: Upgrades, giantHp: number) => void;
 }
 
-function fireInterval(lvl: number) {
-  return Math.max(0.5, 1.8 - lvl * 0.22).toFixed(2);
+function classicFireInterval(lvl: number) {
+  return Math.max(0.1, 1.8 - lvl * 0.22).toFixed(2);
 }
 
-function attackCost(lvl: number)  { return 10 + lvl * 8; }
-function damageCost(lvl: number)  { return 12 + lvl * 10; }
-function harvestCost(lvl: number) { return 8  + lvl * 6; }
-function healCost(count: number)  { return 6  + count * 4; }
+function attackCost(lvl: number)      { return 10 + lvl * 8; }
+function damageCost(lvl: number)      { return 12 + lvl * 10; }
+function harvestCost(lvl: number)     { return 8  + lvl * 6; }
+function healCost(count: number)      { return 6  + count * 4; }
+function cooldownCost(lvl: number)    { return 10 + lvl * 8; }
+function bulletSizeCost(lvl: number)  { return 10 + lvl * 8; }
+function bulletSpeedCost(lvl: number) { return 10 + lvl * 9; }
 
 export function ShopScreen({
-  wave, nextWave, initialHearts, initialGiantHp, upgrades, score, onStart,
+  wave, nextWave, initialHearts, initialGiantHp, upgrades, score, playerClass, onStart,
 }: Props) {
   const insets = useSafeAreaInsets();
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
@@ -43,15 +49,21 @@ export function ShopScreen({
   const [giantHp, setGiantHp] = useState(initialGiantHp);
   const [healUsed, setHealUsed] = useState(false);
 
-  const buy = (type: "attack" | "damage" | "harvest" | "heal") => {
+  type BuyType = "attack" | "damage" | "harvest" | "heal" | "cooldown" | "bulletSize" | "bulletSpeed";
+
+  const buy = (type: BuyType) => {
     const cost =
-      type === "attack"  ? attackCost(upgs.attackLevel)
-      : type === "damage"  ? damageCost(upgs.damageLevel)
-      : type === "harvest" ? harvestCost(upgs.harvestLevel)
+      type === "attack"      ? attackCost(upgs.attackLevel)
+      : type === "damage"      ? damageCost(upgs.damageLevel)
+      : type === "harvest"     ? harvestCost(upgs.harvestLevel)
+      : type === "cooldown"    ? cooldownCost(upgs.cooldownLevel)
+      : type === "bulletSize"  ? bulletSizeCost(upgs.bulletSizeLevel)
+      : type === "bulletSpeed" ? bulletSpeedCost(upgs.bulletSpeedLevel)
       : healCost(upgs.healCount);
 
     if (hearts < cost) return;
     if (type === "heal" && (healUsed || giantHp >= 100)) return;
+    if (type === "harvest" && upgs.harvestLevel >= MAX_HARVEST_LEVEL) return;
 
     setHearts(h => h - cost);
 
@@ -62,70 +74,128 @@ export function ShopScreen({
     } else {
       setUpgs(prev => ({
         ...prev,
-        attackLevel:  type === "attack"  ? prev.attackLevel  + 1 : prev.attackLevel,
-        damageLevel:  type === "damage"  ? prev.damageLevel  + 1 : prev.damageLevel,
-        harvestLevel: type === "harvest" ? prev.harvestLevel + 1 : prev.harvestLevel,
+        attackLevel:      type === "attack"      ? prev.attackLevel + 1      : prev.attackLevel,
+        damageLevel:      type === "damage"      ? prev.damageLevel + 1      : prev.damageLevel,
+        harvestLevel:     type === "harvest"     ? prev.harvestLevel + 1     : prev.harvestLevel,
+        cooldownLevel:    type === "cooldown"    ? prev.cooldownLevel + 1    : prev.cooldownLevel,
+        bulletSizeLevel:  type === "bulletSize"  ? prev.bulletSizeLevel + 1  : prev.bulletSizeLevel,
+        bulletSpeedLevel: type === "bulletSpeed" ? prev.bulletSpeedLevel + 1 : prev.bulletSpeedLevel,
       }));
     }
   };
 
   const canAfford = (cost: number) => hearts >= cost;
+  const harvestMaxed = upgs.harvestLevel >= MAX_HARVEST_LEVEL;
+
+  const classLabel =
+    playerClass === "classic" ? "Heartbreaker"
+    : playerClass === "gatling" ? "Gatling Gunner"
+    : "Sniper";
+
+  const classColor =
+    playerClass === "classic" ? "#2255ff"
+    : playerClass === "gatling" ? "#ff8800"
+    : "#00ddaa";
 
   return (
     <View style={[styles.root, { paddingTop: topPad, paddingBottom: botPad }]}>
-      {/* Header */}
       <View style={styles.header}>
         <Text style={styles.waveComplete}>WAVE {wave} COMPLETE</Text>
+        <View style={styles.classTag}>
+          <Text style={[styles.classLabel, { color: classColor }]}>{classLabel}</Text>
+        </View>
         <Text style={styles.score}>Score: {score}</Text>
       </View>
 
-      {/* Currency row */}
       <View style={styles.currencyRow}>
         <Ionicons name="heart" size={22} color="#ff3366" />
         <Text style={styles.heartsNum}>{hearts}</Text>
         <Text style={styles.heartsLabel}>hearts to spend</Text>
       </View>
 
-      {/* Upgrade cards */}
       <ScrollView style={styles.scroll} contentContainerStyle={styles.cards}>
 
-        {/* Attack Speed */}
-        <UpgradeCard
-          icon="flash"
-          color="#ffaa00"
-          title="Attack Speed"
-          desc={`Fire interval: ${fireInterval(upgs.attackLevel)}s → ${fireInterval(upgs.attackLevel + 1)}s`}
-          level={upgs.attackLevel}
-          cost={attackCost(upgs.attackLevel)}
-          canAfford={canAfford(attackCost(upgs.attackLevel))}
-          onBuy={() => buy("attack")}
-        />
+        {/* ── Classic upgrades ── */}
+        {playerClass === "classic" && (
+          <>
+            <UpgradeCard
+              icon="flash"
+              color="#ffaa00"
+              title="Attack Speed"
+              desc={`Fire interval: ${classicFireInterval(upgs.attackLevel)}s → ${classicFireInterval(upgs.attackLevel + 1)}s`}
+              level={upgs.attackLevel}
+              cost={attackCost(upgs.attackLevel)}
+              canAfford={canAfford(attackCost(upgs.attackLevel))}
+              maxed={parseFloat(classicFireInterval(upgs.attackLevel)) <= 0.1}
+              onBuy={() => buy("attack")}
+            />
+            <UpgradeCard
+              icon="flame"
+              color="#ff4400"
+              title="Power"
+              desc={`Damage per shot: ${1 + upgs.damageLevel} → ${2 + upgs.damageLevel} HP`}
+              level={upgs.damageLevel}
+              cost={damageCost(upgs.damageLevel)}
+              canAfford={canAfford(damageCost(upgs.damageLevel))}
+              onBuy={() => buy("damage")}
+            />
+          </>
+        )}
 
-        {/* Damage */}
-        <UpgradeCard
-          icon="flame"
-          color="#ff4400"
-          title="Power"
-          desc={`Damage per shot: ${1 + upgs.damageLevel} → ${2 + upgs.damageLevel} HP`}
-          level={upgs.damageLevel}
-          cost={damageCost(upgs.damageLevel)}
-          canAfford={canAfford(damageCost(upgs.damageLevel))}
-          onBuy={() => buy("damage")}
-        />
+        {/* ── Gatling upgrades ── */}
+        {playerClass === "gatling" && (
+          <UpgradeCard
+            icon="speedometer"
+            color="#ff8800"
+            title="Charge Speed"
+            desc={`Spins up ${Math.round((0.15 + upgs.cooldownLevel * 0.05) * 100)}% faster per shot → ${Math.round((0.15 + (upgs.cooldownLevel + 1) * 0.05) * 100)}% faster`}
+            level={upgs.cooldownLevel}
+            cost={cooldownCost(upgs.cooldownLevel)}
+            canAfford={canAfford(cooldownCost(upgs.cooldownLevel))}
+            onBuy={() => buy("cooldown")}
+          />
+        )}
 
-        {/* Harvest */}
+        {/* ── Sniper upgrades ── */}
+        {playerClass === "sniper" && (
+          <>
+            <UpgradeCard
+              icon="expand"
+              color="#00ddaa"
+              title="Bullet Size"
+              desc={`Radius: ${(0.6 + upgs.bulletSizeLevel * 0.25).toFixed(2)} → ${(0.6 + (upgs.bulletSizeLevel + 1) * 0.25).toFixed(2)} (wider beam)`}
+              level={upgs.bulletSizeLevel}
+              cost={bulletSizeCost(upgs.bulletSizeLevel)}
+              canAfford={canAfford(bulletSizeCost(upgs.bulletSizeLevel))}
+              onBuy={() => buy("bulletSize")}
+            />
+            <UpgradeCard
+              icon="rocket"
+              color="#00aaff"
+              title="Bullet Speed"
+              desc={`Speed: ${50 + upgs.bulletSpeedLevel * 12} → ${50 + (upgs.bulletSpeedLevel + 1) * 12} units/s`}
+              level={upgs.bulletSpeedLevel}
+              cost={bulletSpeedCost(upgs.bulletSpeedLevel)}
+              canAfford={canAfford(bulletSpeedCost(upgs.bulletSpeedLevel))}
+              onBuy={() => buy("bulletSpeed")}
+            />
+          </>
+        )}
+
+        {/* ── Harvest (all classes, capped) ── */}
         <UpgradeCard
           icon="heart-circle"
           color="#ff3388"
           title="Harvest"
-          desc={`Hearts per pickup: ${1 + upgs.harvestLevel} → ${2 + upgs.harvestLevel}`}
+          desc={`Hearts per pickup: ${1 + upgs.harvestLevel} → ${2 + upgs.harvestLevel}${harvestMaxed ? " (MAX)" : ""}`}
           level={upgs.harvestLevel}
           cost={harvestCost(upgs.harvestLevel)}
-          canAfford={canAfford(harvestCost(upgs.harvestLevel))}
+          canAfford={canAfford(harvestCost(upgs.harvestLevel)) && !harvestMaxed}
+          maxed={harvestMaxed}
           onBuy={() => buy("harvest")}
         />
 
-        {/* Heal */}
+        {/* ── Heal (all classes) ── */}
         <UpgradeCard
           icon="add-circle"
           color="#44ff88"
@@ -140,7 +210,6 @@ export function ShopScreen({
         />
       </ScrollView>
 
-      {/* Giant heart HP preview */}
       <View style={styles.hpPreview}>
         <Ionicons name="heart" size={16} color="#ff3366" />
         <Text style={styles.hpLabel}>Giant Heart: </Text>
@@ -150,7 +219,6 @@ export function ShopScreen({
         <Text style={styles.hpNum}>{giantHp}/100</Text>
       </View>
 
-      {/* Begin next wave */}
       <TouchableOpacity
         style={styles.startBtn}
         onPress={() => onStart(hearts, upgs, giantHp)}
@@ -168,16 +236,17 @@ interface CardProps {
   color: string;
   title: string;
   desc: string;
-  level: number;          // -1 = no level indicator (heal)
+  level: number;
   cost: number;
   canAfford: boolean;
   disabled?: boolean;
   disabledReason?: string;
+  maxed?: boolean;
   onBuy: () => void;
 }
 
-function UpgradeCard({ icon, color, title, desc, level, cost, canAfford, disabled, disabledReason, onBuy }: CardProps) {
-  const isDisabled = disabled || !canAfford;
+function UpgradeCard({ icon, color, title, desc, level, cost, canAfford, disabled, disabledReason, maxed, onBuy }: CardProps) {
+  const isDisabled = disabled || !canAfford || maxed;
   return (
     <View style={styles.card}>
       <View style={styles.cardLeft}>
@@ -195,6 +264,7 @@ function UpgradeCard({ icon, color, title, desc, level, cost, canAfford, disable
             </View>
           )}
           {disabledReason && <Text style={styles.disabledReason}>{disabledReason}</Text>}
+          {maxed && <Text style={styles.maxedLabel}>MAXED OUT</Text>}
         </View>
       </View>
       <TouchableOpacity
@@ -203,8 +273,14 @@ function UpgradeCard({ icon, color, title, desc, level, cost, canAfford, disable
         disabled={isDisabled}
         activeOpacity={0.7}
       >
-        <Ionicons name="heart" size={12} color={isDisabled ? "#553344" : "#ff3366"} />
-        <Text style={[styles.buyBtnText, isDisabled && styles.buyBtnTextDisabled]}>{cost}</Text>
+        {maxed ? (
+          <Text style={styles.maxedBtnText}>MAX</Text>
+        ) : (
+          <>
+            <Ionicons name="heart" size={12} color={isDisabled ? "#553344" : "#ff3366"} />
+            <Text style={[styles.buyBtnText, isDisabled && styles.buyBtnTextDisabled]}>{cost}</Text>
+          </>
+        )}
       </TouchableOpacity>
     </View>
   );
@@ -218,7 +294,7 @@ const styles = StyleSheet.create({
   },
   header: {
     alignItems: "center",
-    paddingVertical: 16,
+    paddingVertical: 14,
   },
   waveComplete: {
     color: "#ff3366",
@@ -226,11 +302,20 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_700Bold",
     letterSpacing: 3,
   },
+  classTag: {
+    marginTop: 4,
+    marginBottom: 2,
+  },
+  classLabel: {
+    fontSize: 13,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 2,
+  },
   score: {
     color: "#aa77aa",
     fontSize: 14,
     fontFamily: "Inter_500Medium",
-    marginTop: 4,
+    marginTop: 2,
     letterSpacing: 1,
   },
   currencyRow: {
@@ -243,7 +328,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderWidth: 1,
     borderColor: "#3a0060",
-    marginBottom: 16,
+    marginBottom: 14,
   },
   heartsNum: {
     color: "#ff99cc",
@@ -323,6 +408,13 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_500Medium",
     marginTop: 2,
   },
+  maxedLabel: {
+    color: "#ff3366",
+    fontSize: 11,
+    fontFamily: "Inter_700Bold",
+    marginTop: 2,
+    letterSpacing: 1,
+  },
   buyBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -348,6 +440,12 @@ const styles = StyleSheet.create({
   },
   buyBtnTextDisabled: {
     color: "#553344",
+  },
+  maxedBtnText: {
+    color: "#553344",
+    fontSize: 11,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 1,
   },
   hpPreview: {
     flexDirection: "row",

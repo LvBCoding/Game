@@ -4,9 +4,12 @@ import { StyleSheet, View } from "react-native";
 
 import { GameHUD } from "@/components/ui/GameHUD";
 import { Joystick } from "@/components/ui/Joystick";
+import { ClassSelectScreen } from "@/components/ui/ClassSelectScreen";
 import { ShopScreen } from "@/components/ui/ShopScreen";
 import { addScore, getLeaderboard, ScoreEntry } from "@/utils/leaderboard";
 import { GameScene } from "./GameScene";
+
+export type PlayerClass = "classic" | "gatling" | "sniper";
 
 export interface HudState {
   giantHeartHp:    number;
@@ -26,10 +29,13 @@ export interface JoystickState {
 }
 
 export interface Upgrades {
-  attackLevel:  number;
-  damageLevel:  number;
-  harvestLevel: number;
-  healCount:    number;
+  attackLevel:      number;
+  damageLevel:      number;
+  harvestLevel:     number;
+  healCount:        number;
+  cooldownLevel:    number;
+  bulletSizeLevel:  number;
+  bulletSpeedLevel: number;
 }
 
 export interface WaveClearSummary {
@@ -54,6 +60,7 @@ const INITIAL_HUD: HudState = {
 
 const INITIAL_UPGRADES: Upgrades = {
   attackLevel: 0, damageLevel: 0, harvestLevel: 0, healCount: 0,
+  cooldownLevel: 0, bulletSizeLevel: 0, bulletSpeedLevel: 0,
 };
 
 export default function GameWorld() {
@@ -67,9 +74,9 @@ export default function GameWorld() {
   const [shopSummary, setShopSummary]   = useState<WaveClearSummary | null>(null);
   const [upgrades, setUpgrades]         = useState<Upgrades>(INITIAL_UPGRADES);
   const [leaderboard, setLeaderboard]   = useState<ScoreEntry[]>(getLeaderboard);
+  const [selectedClass, setSelectedClass] = useState<PlayerClass | null>(null);
   const gameoverSavedRef = useRef(false);
 
-  // Save score once when game over is detected
   useEffect(() => {
     if (hud.phase === "gameover" && !gameoverSavedRef.current) {
       gameoverSavedRef.current = true;
@@ -110,9 +117,22 @@ export default function GameWorld() {
     setShopOpen(false);
     setShopSummary(null);
     gameoverSavedRef.current = false;
+    setSelectedClass(null);
+  }, []);
+
+  const handleClassSelect = useCallback((cls: PlayerClass) => {
+    setSelectedClass(cls);
     setGameKey((k) => k + 1);
     setHud(INITIAL_HUD);
   }, []);
+
+  if (!selectedClass) {
+    return (
+      <View style={styles.root}>
+        <ClassSelectScreen onSelect={handleClassSelect} />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.root}>
@@ -127,6 +147,7 @@ export default function GameWorld() {
           joystickRef={joystickRef}
           upgradesRef={upgradesRef}
           nextWaveRef={nextWaveRef}
+          playerClass={selectedClass}
           onHudUpdate={handleHudUpdate}
           onWaveClear={handleWaveClear}
         />
@@ -147,6 +168,7 @@ export default function GameWorld() {
             initialGiantHp={shopSummary.giantHp}
             upgrades={upgrades}
             score={shopSummary.score}
+            playerClass={selectedClass}
             onStart={handleShopStart}
           />
         )}

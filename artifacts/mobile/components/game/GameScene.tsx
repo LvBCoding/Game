@@ -7,6 +7,7 @@ import type {
   HudState,
   JoystickState,
   NextWaveSignal,
+  PlayerClass,
   Upgrades,
   WaveClearSummary,
 } from "./GameWorld";
@@ -14,7 +15,6 @@ import type {
 // ─── Constants ───────────────────────────────────────────────────────────────
 const ARENA           = 24;
 const PLAYER_SPEED    = 8;
-const PROJ_SPEED      = 24;
 const PICKUP_R        = 2.2;
 const MAGNET_PICKUP_R = 1.8;
 const GREMLIN_HIT_R   = 1.3;
@@ -24,12 +24,33 @@ const GREMLIN_DMG     = 20;
 const HEART_INTERVAL  = 1.8;
 const MAX_GREMLINS    = 18;
 const MAX_HEARTS      = 14;
-const FIRE_RANGE      = 14;
-const BASE_FIRE_INT   = 1.8;
-const MIN_FIRE_INT    = 0.5;
-const MAGNET_DURATION = 3.5;  // seconds magnet stays active
-const MAGNET_SUCTION  = 18;   // units/sec hearts move toward player
-const MAGNET_DROP_CHANCE = 0.01; // 1% per gremlin kill
+const MAGNET_DURATION = 3.5;
+const MAGNET_SUCTION  = 18;
+const MAGNET_DROP_CHANCE = 0.01;
+
+// Classic
+const CLASSIC_PROJ_SPEED  = 24;
+const CLASSIC_BASE_FIRE   = 1.8;
+const CLASSIC_MIN_FIRE    = 0.1;
+const CLASSIC_FIRE_RANGE  = 14;
+const CLASSIC_PROJ_RADIUS = 0.28;
+const MAX_HARVEST_LEVEL   = 5;
+
+// Gatling
+const GATLING_BASE_FIRE   = 2.5;
+const GATLING_MIN_FIRE    = 0.01;
+const GATLING_PROJ_SPEED  = 40;
+const GATLING_PROJ_RADIUS = 0.13;
+const GATLING_FIRE_RANGE  = 14;
+const GATLING_DAMAGE      = 0.1;
+const GATLING_NO_TGT_RESET = 1.0;
+
+// Sniper
+const SNIPER_BASE_FIRE    = 2.5;
+const SNIPER_FIRE_RANGE   = 80;
+const SNIPER_PROJ_SPEED_BASE = 50;
+const SNIPER_PROJ_RADIUS_BASE = 0.6;
+const SNIPER_DAMAGE       = 8;
 
 function gremlinsForWave(w: number)     { return 8 + (w - 1) * 5; }
 function gremlinHpForWave(w: number)    { return 1 + Math.floor(w / 5); }
@@ -64,6 +85,9 @@ interface GS {
   waveClearCalled:  boolean;
   magnetActive:     boolean;
   magnetTimer:      number;
+  // Gatling-specific
+  gatlingFireInt:   number;
+  gatlingNoTgtT:    number;
 }
 
 function initGS(wave = 1, giantHp = GIANT_HP_MAX, hearts = 0): GS {
@@ -78,6 +102,8 @@ function initGS(wave = 1, giantHp = GIANT_HP_MAX, hearts = 0): GS {
     gremlinsSpawned: 0, gremlinsKilled: 0,
     waveClearCalled: false,
     magnetActive: false, magnetTimer: 0,
+    gatlingFireInt: GATLING_BASE_FIRE,
+    gatlingNoTgtT: 0,
   };
 }
 
@@ -87,18 +113,19 @@ const _camTgt = new THREE.Vector3();
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 interface Props {
-  joystickRef: React.MutableRefObject<JoystickState>;
-  upgradesRef: React.MutableRefObject<Upgrades>;
-  nextWaveRef: React.MutableRefObject<NextWaveSignal>;
-  onHudUpdate: (h: HudState) => void;
-  onWaveClear: (s: WaveClearSummary) => void;
+  joystickRef:  React.MutableRefObject<JoystickState>;
+  upgradesRef:  React.MutableRefObject<Upgrades>;
+  nextWaveRef:  React.MutableRefObject<NextWaveSignal>;
+  playerClass:  PlayerClass;
+  onHudUpdate:  (h: HudState) => void;
+  onWaveClear:  (s: WaveClearSummary) => void;
 }
 
 const PILLARS: [number, number][] = [
   [-24,-24],[0,-24],[24,-24],[24,0],[24,24],[0,24],[-24,24],[-24,0],
 ];
 
-export function GameScene({ joystickRef, upgradesRef, nextWaveRef, onHudUpdate, onWaveClear }: Props) {
+export function GameScene({ joystickRef, upgradesRef, nextWaveRef, playerClass, onHudUpdate, onWaveClear }: Props) {
   const { camera } = useThree();
   const gs = useRef<GS>(initGS());
 
@@ -135,13 +162,12 @@ export function GameScene({ joystickRef, upgradesRef, nextWaveRef, onHudUpdate, 
     const uid = () => String(++g.uid);
     const upg = upgradesRef.current;
 
-    // ── Gameover: keep camera alive, ensure HUD fires ─────────────────────────
+    // ── Gameover ──────────────────────────────────────────────────────────────
     if (g.phase === "gameover") {
       _camTgt.set(g.player.pos.x, 32, g.player.pos.z);
       camera.position.lerp(_camTgt, Math.min(dt * 5, 1));
       camera.up.set(0, 0, -1);
       camera.lookAt(g.player.pos.x, 0, g.player.pos.z);
-      // Always push HUD so overlay renders even if gameover was set on an odd frame
       onHudUpdate(buildHudState(g));
       return;
     }
@@ -163,6 +189,8 @@ export function GameScene({ joystickRef, upgradesRef, nextWaveRef, onHudUpdate, 
       g.fireT    = 1.0;
       g.gremlins = []; g.projs = []; g.magnets = [];
       g.magnetActive = false; g.magnetTimer = 0;
+      g.gatlingFireInt = GATLING_BASE_FIRE;
+      g.gatlingNoTgtT  = 0;
       setGremlinIds([]); setProjIds([]); setMagnetIds([]);
       changed = true;
     }
@@ -178,7 +206,6 @@ export function GameScene({ joystickRef, upgradesRef, nextWaveRef, onHudUpdate, 
     }
 
     if (g.phase !== "playing") {
-      // Animate in background during shop
       g.hearts.forEach(h => {
         const m = heartMap.current.get(h.id);
         if (m) m.position.y = 0.5 + Math.sin(t * 2.5 + h.bob) * 0.2;
@@ -241,7 +268,8 @@ export function GameScene({ joystickRef, upgradesRef, nextWaveRef, onHudUpdate, 
       }
     }
 
-    // ── Magnet suction effect ─────────────────────────────────────────────────
+    // ── Magnet suction ────────────────────────────────────────────────────────
+    const harvestAmt = 1 + Math.min(upg.harvestLevel, MAX_HARVEST_LEVEL);
     if (g.magnetActive) {
       g.magnetTimer -= dt;
       if (g.magnetTimer <= 0) {
@@ -254,7 +282,7 @@ export function GameScene({ joystickRef, upgradesRef, nextWaveRef, onHudUpdate, 
           const dist = _mag.length();
           if (dist < 0.6) {
             g.hearts.splice(i, 1);
-            g.heartsCollected += 1 + upg.harvestLevel;
+            g.heartsCollected += harvestAmt;
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
             changed = true;
           } else {
@@ -269,29 +297,79 @@ export function GameScene({ joystickRef, upgradesRef, nextWaveRef, onHudUpdate, 
       for (let i = g.hearts.length - 1; i >= 0; i--) {
         if (g.player.pos.distanceTo(g.hearts[i].pos) < PICKUP_R) {
           g.hearts.splice(i, 1);
-          g.heartsCollected += 1 + upg.harvestLevel;
+          g.heartsCollected += harvestAmt;
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
           changed = true;
         }
       }
     }
 
-    // ── Auto-fire ─────────────────────────────────────────────────────────────
-    const fireInt = Math.max(MIN_FIRE_INT, BASE_FIRE_INT - upg.attackLevel * 0.22);
-    g.fireT -= dt;
-    if (g.fireT <= 0) {
-      g.fireT = fireInt;
+    // ── Auto-fire (per class) ─────────────────────────────────────────────────
+    if (playerClass === "classic") {
+      const fireInt = Math.max(CLASSIC_MIN_FIRE, CLASSIC_BASE_FIRE - upg.attackLevel * 0.22);
+      g.fireT -= dt;
+      if (g.fireT <= 0) {
+        g.fireT = fireInt;
+        let nearest: GremlinData | null = null;
+        let nearestDist = Infinity;
+        for (const gr of g.gremlins) {
+          const d = g.player.pos.distanceTo(gr.pos);
+          if (d < nearestDist && d <= CLASSIC_FIRE_RANGE) { nearestDist = d; nearest = gr; }
+        }
+        if (nearest) {
+          _dir.subVectors(nearest.pos, g.player.pos).normalize();
+          g.player.facing = Math.atan2(_dir.x, _dir.z);
+          g.projs.push({ id: uid(), pos: new THREE.Vector3(g.player.pos.x, 0.8, g.player.pos.z), dir: _dir.clone() });
+          changed = true;
+        }
+      }
+    } else if (playerClass === "gatling") {
+      // Find nearest target
       let nearest: GremlinData | null = null;
       let nearestDist = Infinity;
       for (const gr of g.gremlins) {
         const d = g.player.pos.distanceTo(gr.pos);
-        if (d < nearestDist && d <= FIRE_RANGE) { nearestDist = d; nearest = gr; }
+        if (d < nearestDist && d <= GATLING_FIRE_RANGE) { nearestDist = d; nearest = gr; }
       }
+
       if (nearest) {
-        _dir.subVectors(nearest.pos, g.player.pos).normalize();
-        g.player.facing = Math.atan2(_dir.x, _dir.z);
-        g.projs.push({ id: uid(), pos: new THREE.Vector3(g.player.pos.x, 0.8, g.player.pos.z), dir: _dir.clone() });
-        changed = true;
+        g.gatlingNoTgtT = 0;
+        g.fireT -= dt;
+        if (g.fireT <= 0) {
+          g.fireT = g.gatlingFireInt;
+          // Ramp: reduce interval each shot
+          const reductionPct = 0.15 + upg.cooldownLevel * 0.05;
+          g.gatlingFireInt = Math.max(GATLING_MIN_FIRE, g.gatlingFireInt * (1 - reductionPct));
+          _dir.subVectors(nearest.pos, g.player.pos).normalize();
+          g.player.facing = Math.atan2(_dir.x, _dir.z);
+          g.projs.push({ id: uid(), pos: new THREE.Vector3(g.player.pos.x, 0.8, g.player.pos.z), dir: _dir.clone() });
+          changed = true;
+        }
+      } else {
+        // No target — count time
+        g.gatlingNoTgtT += dt;
+        if (g.gatlingNoTgtT >= GATLING_NO_TGT_RESET) {
+          g.gatlingFireInt = GATLING_BASE_FIRE;
+          g.fireT = g.gatlingFireInt;
+        }
+      }
+    } else if (playerClass === "sniper") {
+      // Fixed fire rate, cannot upgrade
+      g.fireT -= dt;
+      if (g.fireT <= 0) {
+        g.fireT = SNIPER_BASE_FIRE;
+        let nearest: GremlinData | null = null;
+        let nearestDist = Infinity;
+        for (const gr of g.gremlins) {
+          const d = g.player.pos.distanceTo(gr.pos);
+          if (d < nearestDist && d <= SNIPER_FIRE_RANGE) { nearestDist = d; nearest = gr; }
+        }
+        if (nearest) {
+          _dir.subVectors(nearest.pos, g.player.pos).normalize();
+          g.player.facing = Math.atan2(_dir.x, _dir.z);
+          g.projs.push({ id: uid(), pos: new THREE.Vector3(g.player.pos.x, 0.8, g.player.pos.z), dir: _dir.clone() });
+          changed = true;
+        }
       }
     }
 
@@ -312,17 +390,30 @@ export function GameScene({ joystickRef, upgradesRef, nextWaveRef, onHudUpdate, 
     }
 
     // ── Projectiles + collision ───────────────────────────────────────────────
-    const projDmg = 1 + upg.damageLevel;
-    const pSpd    = PROJ_SPEED * dt;
+    const projDmg =
+      playerClass === "gatling" ? GATLING_DAMAGE
+      : playerClass === "sniper" ? SNIPER_DAMAGE
+      : (1 + upg.damageLevel);
+
+    const projSpeed =
+      playerClass === "gatling" ? GATLING_PROJ_SPEED
+      : playerClass === "sniper" ? (SNIPER_PROJ_SPEED_BASE + upg.bulletSpeedLevel * 12)
+      : CLASSIC_PROJ_SPEED;
+
+    const pSpd = projSpeed * dt;
+
     for (let pi = g.projs.length - 1; pi >= 0; pi--) {
       const p = g.projs[pi];
       p.pos.addScaledVector(p.dir, pSpd);
-      if (Math.abs(p.pos.x) > ARENA + 3 || Math.abs(p.pos.z) > ARENA + 3) {
+      if (Math.abs(p.pos.x) > ARENA + 8 || Math.abs(p.pos.z) > ARENA + 8) {
         g.projs.splice(pi, 1); changed = true; continue;
       }
       let hit = false;
       for (let gi = g.gremlins.length - 1; gi >= 0; gi--) {
-        if (p.pos.distanceTo(g.gremlins[gi].pos) < GREMLIN_HIT_R) {
+        const hitR = playerClass === "sniper"
+          ? (SNIPER_PROJ_RADIUS_BASE + upg.bulletSizeLevel * 0.25) + 0.3
+          : GREMLIN_HIT_R;
+        if (p.pos.distanceTo(g.gremlins[gi].pos) < hitR) {
           g.gremlins[gi].hp -= projDmg;
           if (g.gremlins[gi].hp <= 0) {
             const deadPos = g.gremlins[gi].pos.clone();
@@ -330,7 +421,6 @@ export function GameScene({ joystickRef, upgradesRef, nextWaveRef, onHudUpdate, 
             g.gremlinsKilled++;
             g.score += 10;
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-            // 1% chance to drop a magnet
             if (Math.random() < MAGNET_DROP_CHANCE) {
               g.magnets.push({ id: uid(), pos: deadPos });
             }
@@ -394,6 +484,28 @@ export function GameScene({ joystickRef, upgradesRef, nextWaveRef, onHudUpdate, 
     }
   });
 
+  // ── Derive projectile visuals per class ────────────────────────────────────
+  const upg = upgradesRef.current;
+  const projRadius =
+    playerClass === "gatling" ? GATLING_PROJ_RADIUS
+    : playerClass === "sniper" ? (SNIPER_PROJ_RADIUS_BASE + upg.bulletSizeLevel * 0.25)
+    : CLASSIC_PROJ_RADIUS;
+
+  const projColor =
+    playerClass === "gatling" ? "#ffcc00"
+    : playerClass === "sniper" ? "#00ffcc"
+    : "#ffaadd";
+
+  const projEmissive =
+    playerClass === "gatling" ? "#ff8800"
+    : playerClass === "sniper" ? "#00ddaa"
+    : "#ff3366";
+
+  const playerColor =
+    playerClass === "gatling" ? "#ff8800"
+    : playerClass === "sniper" ? "#00ddaa"
+    : "#2255ff";
+
   return (
     <>
       <ambientLight intensity={0.7} />
@@ -413,7 +525,7 @@ export function GameScene({ joystickRef, upgradesRef, nextWaveRef, onHudUpdate, 
         </mesh>
       ))}
 
-      {/* Giant Heart — ASSET SLOT: assets/models/giant-heart.glb */}
+      {/* Giant Heart */}
       <mesh ref={giantMesh} position={[0, 1.5, 0]}>
         <sphereGeometry args={[2.5, 24, 24]} />
         <meshLambertMaterial color="#ff0044" />
@@ -423,13 +535,13 @@ export function GameScene({ joystickRef, upgradesRef, nextWaveRef, onHudUpdate, 
         <meshBasicMaterial color="#ff0044" transparent opacity={0.1} />
       </mesh>
 
-      {/* Player — ASSET SLOT: assets/models/player.glb */}
+      {/* Player */}
       <mesh ref={playerMesh} position={[0, 0.75, 8]}>
         <boxGeometry args={[0.9, 1.5, 0.7]} />
-        <meshLambertMaterial color="#2255ff" />
+        <meshLambertMaterial color={playerColor} />
       </mesh>
 
-      {/* Gremlins — ASSET SLOT: assets/models/gremlin.glb */}
+      {/* Gremlins */}
       {gremlinIds.map(id => (
         <group key={id} ref={(el: THREE.Group | null) => {
           if (el) gremlinMap.current.set(id, el); else gremlinMap.current.delete(id);
@@ -449,7 +561,7 @@ export function GameScene({ joystickRef, upgradesRef, nextWaveRef, onHudUpdate, 
         </group>
       ))}
 
-      {/* Collectible hearts — ASSET SLOT: assets/models/heart-pickup.glb */}
+      {/* Collectible hearts */}
       {heartIds.map(id => (
         <mesh key={id} ref={(el: THREE.Mesh | null) => {
           if (el) heartMap.current.set(id, el); else heartMap.current.delete(id);
@@ -459,7 +571,7 @@ export function GameScene({ joystickRef, upgradesRef, nextWaveRef, onHudUpdate, 
         </mesh>
       ))}
 
-      {/* Magnet drops — gold spinning octahedron */}
+      {/* Magnet drops */}
       {magnetIds.map(id => (
         <mesh key={id} ref={(el: THREE.Mesh | null) => {
           if (el) magnetMMap.current.set(id, el); else magnetMMap.current.delete(id);
@@ -474,8 +586,8 @@ export function GameScene({ joystickRef, upgradesRef, nextWaveRef, onHudUpdate, 
         <mesh key={id} ref={(el: THREE.Mesh | null) => {
           if (el) projMap.current.set(id, el); else projMap.current.delete(id);
         }}>
-          <sphereGeometry args={[0.28, 10, 10]} />
-          <meshLambertMaterial color="#ffaadd" emissive="#ff3366" emissiveIntensity={2.5} />
+          <sphereGeometry args={[projRadius, 10, 10]} />
+          <meshLambertMaterial color={projColor} emissive={projEmissive} emissiveIntensity={2.5} />
         </mesh>
       ))}
     </>

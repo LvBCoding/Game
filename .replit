@@ -41,3 +41,4 @@ externalPort = 3001
 
 [nix]
 packages = ["zip"]
+channel = "stable-25_05"
