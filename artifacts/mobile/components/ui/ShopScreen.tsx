@@ -12,22 +12,22 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import type { PlayerClass, Upgrades } from "@/components/game/GameWorld";
 
-const MAX_HARVEST_LEVEL = 5;
+// ─── Shared constants (must match GameScene) ─────────────────────────────────
+const MAX_HARVEST_LEVEL      = 5;
+const MAX_ATTACK_LEVEL       = 5;
+const MAX_COOLDOWN_LEVEL     = 5;
+const MAX_BULLET_SIZE_LEVEL  = 5;
+const MAX_BULLET_SPEED_LEVEL = 5;
+const MAX_SPREAD_LEVEL       = 5;
 
-interface Props {
-  wave:            number;
-  nextWave:        number;
-  initialHearts:   number;
-  initialGiantHp:  number;
-  upgrades:        Upgrades;
-  score:           number;
-  playerClass:     PlayerClass;
-  onStart: (remainingHearts: number, upgrades: Upgrades, giantHp: number) => void;
-}
+// ─── Wave preview helpers (must match GameScene) ──────────────────────────────
+function nextGremlins(w: number)     { return 8 + (w - 1) * 5; }
+function nextGremlinHp(w: number)    { return 1 + Math.floor(w / 5); }
+function nextSpawnInterval(w: number){ return Math.max(0.8, 2.4 - (w - 1) * 0.2).toFixed(1); }
+function nextGremlinSpeed(w: number) { return (1.4 + (w - 1) * 0.28).toFixed(1); }
 
-function classicFireInterval(lvl: number) {
-  return Math.max(0.1, 1.8 - lvl * 0.22).toFixed(2);
-}
+// ─── Cost functions ───────────────────────────────────────────────────────────
+function classicFireInterval(lvl: number) { return Math.max(0.1, 1.0 - lvl * 0.18).toFixed(2); }
 
 function attackCost(lvl: number)      { return 10 + lvl * 8; }
 function damageCost(lvl: number)      { return 12 + lvl * 10; }
@@ -36,6 +36,18 @@ function healCost(count: number)      { return 6  + count * 4; }
 function cooldownCost(lvl: number)    { return 10 + lvl * 8; }
 function bulletSizeCost(lvl: number)  { return 10 + lvl * 8; }
 function bulletSpeedCost(lvl: number) { return 10 + lvl * 9; }
+function spreadCost(lvl: number)      { return 10 + lvl * 9; }
+
+interface Props {
+  wave:           number;
+  nextWave:       number;
+  initialHearts:  number;
+  initialGiantHp: number;
+  upgrades:       Upgrades;
+  score:          number;
+  playerClass:    PlayerClass;
+  onStart: (remainingHearts: number, upgrades: Upgrades, giantHp: number) => void;
+}
 
 export function ShopScreen({
   wave, nextWave, initialHearts, initialGiantHp, upgrades, score, playerClass, onStart,
@@ -44,26 +56,28 @@ export function ShopScreen({
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const botPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
 
-  const [hearts, setHearts]   = useState(initialHearts);
-  const [upgs, setUpgs]       = useState<Upgrades>({ ...upgrades });
-  const [giantHp, setGiantHp] = useState(initialGiantHp);
+  const [hearts, setHearts]     = useState(initialHearts);
+  const [upgs, setUpgs]         = useState<Upgrades>({ ...upgrades });
+  const [giantHp, setGiantHp]   = useState(initialGiantHp);
   const [healUsed, setHealUsed] = useState(false);
 
-  type BuyType = "attack" | "damage" | "harvest" | "heal" | "cooldown" | "bulletSize" | "bulletSpeed";
+  type BuyType = "attack" | "damage" | "harvest" | "heal" | "cooldown" | "bulletSize" | "bulletSpeed" | "spread";
 
   const buy = (type: BuyType) => {
     const cost =
       type === "attack"      ? attackCost(upgs.attackLevel)
-      : type === "damage"      ? damageCost(upgs.damageLevel)
-      : type === "harvest"     ? harvestCost(upgs.harvestLevel)
-      : type === "cooldown"    ? cooldownCost(upgs.cooldownLevel)
+      : type === "damage"    ? damageCost(upgs.damageLevel)
+      : type === "harvest"   ? harvestCost(upgs.harvestLevel)
+      : type === "cooldown"  ? cooldownCost(upgs.cooldownLevel)
       : type === "bulletSize"  ? bulletSizeCost(upgs.bulletSizeLevel)
       : type === "bulletSpeed" ? bulletSpeedCost(upgs.bulletSpeedLevel)
+      : type === "spread"    ? spreadCost(upgs.spreadLevel)
       : healCost(upgs.healCount);
 
     if (hearts < cost) return;
     if (type === "heal" && (healUsed || giantHp >= 100)) return;
     if (type === "harvest" && upgs.harvestLevel >= MAX_HARVEST_LEVEL) return;
+    if (type === "spread"  && upgs.spreadLevel  >= MAX_SPREAD_LEVEL) return;
 
     setHearts(h => h - cost);
 
@@ -80,6 +94,7 @@ export function ShopScreen({
         cooldownLevel:    type === "cooldown"    ? prev.cooldownLevel + 1    : prev.cooldownLevel,
         bulletSizeLevel:  type === "bulletSize"  ? prev.bulletSizeLevel + 1  : prev.bulletSizeLevel,
         bulletSpeedLevel: type === "bulletSpeed" ? prev.bulletSpeedLevel + 1 : prev.bulletSpeedLevel,
+        spreadLevel:      type === "spread"      ? prev.spreadLevel + 1      : prev.spreadLevel,
       }));
     }
   };
@@ -87,15 +102,30 @@ export function ShopScreen({
   const canAfford = (cost: number) => hearts >= cost;
   const harvestMaxed = upgs.harvestLevel >= MAX_HARVEST_LEVEL;
 
+  // ── Overflow unlock conditions ────────────────────────────────────────────
+  const classicAtkMaxed        = upgs.attackLevel >= MAX_ATTACK_LEVEL;
+  const gatlingOverflow         = upgs.cooldownLevel >= MAX_COOLDOWN_LEVEL;
+  const sniperOverflow          = upgs.bulletSizeLevel >= MAX_BULLET_SIZE_LEVEL && upgs.bulletSpeedLevel >= MAX_BULLET_SPEED_LEVEL;
+  const shotgunnerOverflow      = upgs.spreadLevel >= MAX_SPREAD_LEVEL;
+
   const classLabel =
-    playerClass === "classic" ? "Heartbreaker"
-    : playerClass === "gatling" ? "Gatling Gunner"
-    : "Sniper";
+    playerClass === "classic"    ? "Heartbreaker"
+    : playerClass === "gatling"  ? "Gatling Gunner"
+    : playerClass === "sniper"   ? "Sniper"
+    : "Shotgunner";
 
   const classColor =
-    playerClass === "classic" ? "#2255ff"
-    : playerClass === "gatling" ? "#ff8800"
-    : "#00ddaa";
+    playerClass === "classic"    ? "#2255ff"
+    : playerClass === "gatling"  ? "#ff8800"
+    : playerClass === "sniper"   ? "#00ddaa"
+    : "#cc44ff";
+
+  // ── Wave preview stats ────────────────────────────────────────────────────
+  const nGremlins  = nextGremlins(nextWave);
+  const nHp        = nextGremlinHp(nextWave);
+  const nSpawn     = nextSpawnInterval(nextWave);
+  const nSpeed     = nextGremlinSpeed(nextWave);
+  const diffColor  = nextWave <= 5 ? "#44ff88" : nextWave <= 10 ? "#ffaa00" : "#ff4444";
 
   return (
     <View style={[styles.root, { paddingTop: topPad, paddingBottom: botPad }]}>
@@ -107,6 +137,17 @@ export function ShopScreen({
         <Text style={styles.score}>Score: {score}</Text>
       </View>
 
+      {/* Wave difficulty preview */}
+      <View style={[styles.wavePreview, { borderColor: diffColor + "44" }]}>
+        <Text style={[styles.wavePreviewTitle, { color: diffColor }]}>WAVE {nextWave} INCOMING</Text>
+        <View style={styles.wavePreviewRow}>
+          <PreviewStat icon="skull-outline" value={String(nGremlins)} label="gremlins" color={diffColor} />
+          <PreviewStat icon="heart-dislike" value={`${nHp} HP`}       label="each"     color={diffColor} />
+          <PreviewStat icon="speedometer"   value={nSpeed}             label="speed"    color={diffColor} />
+          <PreviewStat icon="time-outline"  value={`${nSpawn}s`}       label="spawn"    color={diffColor} />
+        </View>
+      </View>
+
       <View style={styles.currencyRow}>
         <Ionicons name="heart" size={22} color="#ff3366" />
         <Text style={styles.heartsNum}>{hearts}</Text>
@@ -115,7 +156,7 @@ export function ShopScreen({
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.cards}>
 
-        {/* ── Classic upgrades ── */}
+        {/* ── Classic (Heartbreaker) upgrades ── */}
         {playerClass === "classic" && (
           <>
             <UpgradeCard
@@ -126,7 +167,7 @@ export function ShopScreen({
               level={upgs.attackLevel}
               cost={attackCost(upgs.attackLevel)}
               canAfford={canAfford(attackCost(upgs.attackLevel))}
-              maxed={parseFloat(classicFireInterval(upgs.attackLevel)) <= 0.1}
+              maxed={classicAtkMaxed}
               onBuy={() => buy("attack")}
             />
             <UpgradeCard
@@ -139,21 +180,50 @@ export function ShopScreen({
               canAfford={canAfford(damageCost(upgs.damageLevel))}
               onBuy={() => buy("damage")}
             />
+            {classicAtkMaxed && (
+              <UpgradeCard
+                icon="expand"
+                color="#aa88ff"
+                title="⚡ Bullet Size (Overflow)"
+                desc={`Bigger bullets, wider hit radius (+0.12 per level)`}
+                level={upgs.bulletSizeLevel}
+                cost={bulletSizeCost(upgs.bulletSizeLevel)}
+                canAfford={canAfford(bulletSizeCost(upgs.bulletSizeLevel))}
+                overflow
+                onBuy={() => buy("bulletSize")}
+              />
+            )}
           </>
         )}
 
         {/* ── Gatling upgrades ── */}
         {playerClass === "gatling" && (
-          <UpgradeCard
-            icon="speedometer"
-            color="#ff8800"
-            title="Charge Speed"
-            desc={`Spins up ${Math.round((0.15 + upgs.cooldownLevel * 0.05) * 100)}% faster per shot → ${Math.round((0.15 + (upgs.cooldownLevel + 1) * 0.05) * 100)}% faster`}
-            level={upgs.cooldownLevel}
-            cost={cooldownCost(upgs.cooldownLevel)}
-            canAfford={canAfford(cooldownCost(upgs.cooldownLevel))}
-            onBuy={() => buy("cooldown")}
-          />
+          <>
+            <UpgradeCard
+              icon="speedometer"
+              color="#ff8800"
+              title="Charge Speed"
+              desc={`Spins up ${Math.round((0.25 + upgs.cooldownLevel * 0.06) * 100)}% faster per shot → ${Math.round((0.25 + (upgs.cooldownLevel + 1) * 0.06) * 100)}%`}
+              level={upgs.cooldownLevel}
+              cost={cooldownCost(upgs.cooldownLevel)}
+              canAfford={canAfford(cooldownCost(upgs.cooldownLevel))}
+              maxed={gatlingOverflow}
+              onBuy={() => buy("cooldown")}
+            />
+            {gatlingOverflow && (
+              <UpgradeCard
+                icon="flame"
+                color="#ffaa44"
+                title="⚡ Damage Boost (Overflow)"
+                desc={`+0.1 damage per bullet per level (base 0.2)`}
+                level={upgs.damageLevel}
+                cost={damageCost(upgs.damageLevel)}
+                canAfford={canAfford(damageCost(upgs.damageLevel))}
+                overflow
+                onBuy={() => buy("damage")}
+              />
+            )}
+          </>
         )}
 
         {/* ── Sniper upgrades ── */}
@@ -167,6 +237,7 @@ export function ShopScreen({
               level={upgs.bulletSizeLevel}
               cost={bulletSizeCost(upgs.bulletSizeLevel)}
               canAfford={canAfford(bulletSizeCost(upgs.bulletSizeLevel))}
+              maxed={upgs.bulletSizeLevel >= MAX_BULLET_SIZE_LEVEL}
               onBuy={() => buy("bulletSize")}
             />
             <UpgradeCard
@@ -177,8 +248,52 @@ export function ShopScreen({
               level={upgs.bulletSpeedLevel}
               cost={bulletSpeedCost(upgs.bulletSpeedLevel)}
               canAfford={canAfford(bulletSpeedCost(upgs.bulletSpeedLevel))}
+              maxed={upgs.bulletSpeedLevel >= MAX_BULLET_SPEED_LEVEL}
               onBuy={() => buy("bulletSpeed")}
             />
+            {sniperOverflow && (
+              <UpgradeCard
+                icon="flash"
+                color="#88ffcc"
+                title="⚡ Attack Speed (Overflow)"
+                desc={`Fire rate: ${Math.max(0.6, 1.8 - upgs.attackLevel * 0.22).toFixed(2)}s → ${Math.max(0.6, 1.8 - (upgs.attackLevel + 1) * 0.22).toFixed(2)}s`}
+                level={upgs.attackLevel}
+                cost={attackCost(upgs.attackLevel)}
+                canAfford={canAfford(attackCost(upgs.attackLevel))}
+                overflow
+                onBuy={() => buy("attack")}
+              />
+            )}
+          </>
+        )}
+
+        {/* ── Shotgunner upgrades ── */}
+        {playerClass === "shotgunner" && (
+          <>
+            <UpgradeCard
+              icon="git-branch"
+              color="#cc44ff"
+              title="Spread"
+              desc={`${3 + upgs.spreadLevel} bullets, ±${Math.round((0.35 + upgs.spreadLevel * 0.07) * 57)}° → ${3 + upgs.spreadLevel + 1} bullets, ±${Math.round((0.35 + (upgs.spreadLevel + 1) * 0.07) * 57)}°`}
+              level={upgs.spreadLevel}
+              cost={spreadCost(upgs.spreadLevel)}
+              canAfford={canAfford(spreadCost(upgs.spreadLevel))}
+              maxed={shotgunnerOverflow}
+              onBuy={() => buy("spread")}
+            />
+            {shotgunnerOverflow && (
+              <UpgradeCard
+                icon="flame"
+                color="#ff88ff"
+                title="⚡ Damage Boost (Overflow)"
+                desc={`+1.5 damage/bullet per level (base 3.0)`}
+                level={upgs.damageLevel}
+                cost={damageCost(upgs.damageLevel)}
+                canAfford={canAfford(damageCost(upgs.damageLevel))}
+                overflow
+                onBuy={() => buy("damage")}
+              />
+            )}
           </>
         )}
 
@@ -231,6 +346,23 @@ export function ShopScreen({
   );
 }
 
+// ─── Wave preview stat pill ───────────────────────────────────────────────────
+function PreviewStat({ icon, value, label, color }: { icon: string; value: string; label: string; color: string }) {
+  return (
+    <View style={previewStyles.pill}>
+      <Ionicons name={icon as any} size={13} color={color} />
+      <Text style={[previewStyles.value, { color }]}>{value}</Text>
+      <Text style={previewStyles.label}>{label}</Text>
+    </View>
+  );
+}
+const previewStyles = StyleSheet.create({
+  pill:  { alignItems: "center", flex: 1 },
+  value: { fontSize: 13, fontFamily: "Inter_700Bold", marginTop: 2 },
+  label: { color: "#886699", fontSize: 10, fontFamily: "Inter_400Regular" },
+});
+
+// ─── Upgrade card ─────────────────────────────────────────────────────────────
 interface CardProps {
   icon: string;
   color: string;
@@ -242,13 +374,14 @@ interface CardProps {
   disabled?: boolean;
   disabledReason?: string;
   maxed?: boolean;
+  overflow?: boolean;
   onBuy: () => void;
 }
 
-function UpgradeCard({ icon, color, title, desc, level, cost, canAfford, disabled, disabledReason, maxed, onBuy }: CardProps) {
+function UpgradeCard({ icon, color, title, desc, level, cost, canAfford, disabled, disabledReason, maxed, overflow, onBuy }: CardProps) {
   const isDisabled = disabled || !canAfford || maxed;
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, overflow && styles.cardOverflow]}>
       <View style={styles.cardLeft}>
         <View style={[styles.iconBox, { backgroundColor: color + "22", borderColor: color + "55" }]}>
           <Ionicons name={icon as any} size={28} color={color} />
@@ -265,6 +398,7 @@ function UpgradeCard({ icon, color, title, desc, level, cost, canAfford, disable
           )}
           {disabledReason && <Text style={styles.disabledReason}>{disabledReason}</Text>}
           {maxed && <Text style={styles.maxedLabel}>MAXED OUT</Text>}
+          {overflow && <Text style={[styles.overflowLabel, { color }]}>OVERFLOW UNLOCKED</Text>}
         </View>
       </View>
       <TouchableOpacity
@@ -287,37 +421,30 @@ function UpgradeCard({ icon, color, title, desc, level, cost, canAfford, disable
 }
 
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: "#09001a",
-    paddingHorizontal: 16,
+  root: { flex: 1, backgroundColor: "#09001a", paddingHorizontal: 16 },
+  header: { alignItems: "center", paddingVertical: 10 },
+  waveComplete: { color: "#ff3366", fontSize: 24, fontFamily: "Inter_700Bold", letterSpacing: 3 },
+  classTag:  { marginTop: 4, marginBottom: 2 },
+  classLabel:{ fontSize: 13, fontFamily: "Inter_700Bold", letterSpacing: 2 },
+  score:     { color: "#aa77aa", fontSize: 13, fontFamily: "Inter_500Medium", marginTop: 2, letterSpacing: 1 },
+
+  wavePreview: {
+    backgroundColor: "#0e0022",
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: 10,
   },
-  header: {
-    alignItems: "center",
-    paddingVertical: 14,
-  },
-  waveComplete: {
-    color: "#ff3366",
-    fontSize: 26,
-    fontFamily: "Inter_700Bold",
-    letterSpacing: 3,
-  },
-  classTag: {
-    marginTop: 4,
-    marginBottom: 2,
-  },
-  classLabel: {
-    fontSize: 13,
+  wavePreviewTitle: {
+    fontSize: 10,
     fontFamily: "Inter_700Bold",
     letterSpacing: 2,
+    marginBottom: 8,
+    textAlign: "center",
   },
-  score: {
-    color: "#aa77aa",
-    fontSize: 14,
-    fontFamily: "Inter_500Medium",
-    marginTop: 2,
-    letterSpacing: 1,
-  },
+  wavePreviewRow: { flexDirection: "row", justifyContent: "space-between" },
+
   currencyRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -328,175 +455,84 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderWidth: 1,
     borderColor: "#3a0060",
-    marginBottom: 14,
+    marginBottom: 10,
   },
-  heartsNum: {
-    color: "#ff99cc",
-    fontSize: 24,
-    fontFamily: "Inter_700Bold",
-  },
-  heartsLabel: {
-    color: "#aa77aa",
-    fontSize: 13,
-    fontFamily: "Inter_500Medium",
-  },
-  scroll: {
-    flex: 1,
-  },
-  cards: {
-    gap: 10,
-    paddingBottom: 8,
-  },
+  heartsNum:   { color: "#ff99cc", fontSize: 22, fontFamily: "Inter_700Bold" },
+  heartsLabel: { color: "#aa77aa", fontSize: 13, fontFamily: "Inter_500Medium" },
+
+  scroll: { flex: 1 },
+  cards:  { gap: 8, paddingBottom: 8 },
+
   card: {
     backgroundColor: "#130028",
     borderRadius: 16,
     borderWidth: 1,
     borderColor: "#2a0050",
-    padding: 14,
+    padding: 12,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
-  cardLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
-    gap: 12,
+  cardOverflow: {
+    borderColor: "#6600aa",
+    backgroundColor: "#1a0035",
   },
+  cardLeft: { flexDirection: "row", alignItems: "center", flex: 1, gap: 12 },
   iconBox: {
-    width: 52,
-    height: 52,
+    width: 48,
+    height: 48,
     borderRadius: 14,
     borderWidth: 1,
     justifyContent: "center",
     alignItems: "center",
   },
-  cardText: {
-    flex: 1,
+  cardText:  { flex: 1 },
+  cardTitle: { color: "#fff", fontSize: 14, fontFamily: "Inter_700Bold", marginBottom: 2 },
+  cardDesc:  { color: "#aa77aa", fontSize: 11, fontFamily: "Inter_400Regular", marginBottom: 3 },
+  levels:    { flexDirection: "row", gap: 3 },
+  levelDot:  {
+    width: 7, height: 7, borderRadius: 4,
+    backgroundColor: "#2a0050", borderWidth: 1, borderColor: "#5a0090",
   },
-  cardTitle: {
-    color: "#fff",
-    fontSize: 15,
-    fontFamily: "Inter_700Bold",
-    marginBottom: 2,
-  },
-  cardDesc: {
-    color: "#aa77aa",
-    fontSize: 12,
-    fontFamily: "Inter_400Regular",
-    marginBottom: 4,
-  },
-  levels: {
-    flexDirection: "row",
-    gap: 4,
-  },
-  levelDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#2a0050",
-    borderWidth: 1,
-    borderColor: "#5a0090",
-  },
-  levelDotFilled: {
-    backgroundColor: "#ff3366",
-    borderColor: "#ff99cc",
-  },
-  disabledReason: {
-    color: "#664444",
-    fontSize: 11,
-    fontFamily: "Inter_500Medium",
-    marginTop: 2,
-  },
-  maxedLabel: {
-    color: "#ff3366",
-    fontSize: 11,
-    fontFamily: "Inter_700Bold",
-    marginTop: 2,
-    letterSpacing: 1,
-  },
+  levelDotFilled: { backgroundColor: "#ff3366", borderColor: "#ff99cc" },
+  disabledReason: { color: "#664444", fontSize: 10, fontFamily: "Inter_500Medium", marginTop: 2 },
+  maxedLabel:     { color: "#ff3366", fontSize: 10, fontFamily: "Inter_700Bold", marginTop: 2, letterSpacing: 1 },
+  overflowLabel:  { fontSize: 10, fontFamily: "Inter_700Bold", marginTop: 2, letterSpacing: 1 },
+
   buyBtn: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
     backgroundColor: "#2a0050",
     borderRadius: 10,
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     paddingVertical: 8,
     borderWidth: 1,
     borderColor: "#5a0090",
-    minWidth: 52,
+    minWidth: 50,
     justifyContent: "center",
-    marginLeft: 10,
+    marginLeft: 8,
   },
-  buyBtnDisabled: {
-    backgroundColor: "#150025",
-    borderColor: "#2a0040",
-  },
-  buyBtnText: {
-    color: "#ff99cc",
-    fontSize: 14,
-    fontFamily: "Inter_700Bold",
-  },
-  buyBtnTextDisabled: {
-    color: "#553344",
-  },
-  maxedBtnText: {
-    color: "#553344",
-    fontSize: 11,
-    fontFamily: "Inter_700Bold",
-    letterSpacing: 1,
-  },
+  buyBtnDisabled:      { backgroundColor: "#150025", borderColor: "#2a0040" },
+  buyBtnText:          { color: "#ff99cc", fontSize: 13, fontFamily: "Inter_700Bold" },
+  buyBtnTextDisabled:  { color: "#553344" },
+  maxedBtnText:        { color: "#553344", fontSize: 10, fontFamily: "Inter_700Bold", letterSpacing: 1 },
+
   hpPreview: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingVertical: 10,
+    flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 8,
   },
-  hpLabel: {
-    color: "#aa77aa",
-    fontSize: 12,
-    fontFamily: "Inter_500Medium",
+  hpLabel:  { color: "#aa77aa", fontSize: 12, fontFamily: "Inter_500Medium" },
+  hpBarBg:  {
+    flex: 1, height: 8, backgroundColor: "#1e003a", borderRadius: 4, overflow: "hidden",
+    borderWidth: 1, borderColor: "#5a0080",
   },
-  hpBarBg: {
-    flex: 1,
-    height: 8,
-    backgroundColor: "#1e003a",
-    borderRadius: 4,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: "#5a0080",
-  },
-  hpBarFill: {
-    height: "100%",
-    backgroundColor: "#ff3366",
-    borderRadius: 4,
-  },
-  hpNum: {
-    color: "#ff99cc",
-    fontSize: 12,
-    fontFamily: "Inter_600SemiBold",
-    minWidth: 48,
-    textAlign: "right",
-  },
+  hpBarFill: { height: "100%", backgroundColor: "#ff3366", borderRadius: 4 },
+  hpNum:     { color: "#ff99cc", fontSize: 12, fontFamily: "Inter_600SemiBold", minWidth: 48, textAlign: "right" },
+
   startBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 10,
-    backgroundColor: "#ff3366",
-    borderRadius: 18,
-    paddingVertical: 16,
-    marginTop: 8,
-    shadowColor: "#ff3366",
-    shadowOpacity: 0.6,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 0 },
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10,
+    backgroundColor: "#ff3366", borderRadius: 18, paddingVertical: 14, marginTop: 4,
+    shadowColor: "#ff3366", shadowOpacity: 0.6, shadowRadius: 16, shadowOffset: { width: 0, height: 0 },
   },
-  startLabel: {
-    color: "#fff",
-    fontSize: 18,
-    fontFamily: "Inter_700Bold",
-    letterSpacing: 2,
-  },
+  startLabel: { color: "#fff", fontSize: 17, fontFamily: "Inter_700Bold", letterSpacing: 2 },
 });

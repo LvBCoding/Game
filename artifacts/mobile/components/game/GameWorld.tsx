@@ -9,7 +9,7 @@ import { ShopScreen } from "@/components/ui/ShopScreen";
 import { addScore, getLeaderboard, ScoreEntry } from "@/utils/leaderboard";
 import { GameScene } from "./GameScene";
 
-export type PlayerClass = "classic" | "gatling" | "sniper";
+export type PlayerClass = "classic" | "gatling" | "sniper" | "shotgunner";
 
 export interface HudState {
   giantHeartHp:    number;
@@ -22,6 +22,11 @@ export interface HudState {
   magnetActive:    boolean;
   magnetTimer:     number;
   gatlingCharge:   number;
+  ultCharge:       number;
+  ultMax:          number;
+  ultReady:        boolean;
+  ultActive:       boolean;
+  ultTimer:        number;
 }
 
 export interface JoystickState {
@@ -37,6 +42,7 @@ export interface Upgrades {
   cooldownLevel:    number;
   bulletSizeLevel:  number;
   bulletSpeedLevel: number;
+  spreadLevel:      number;
 }
 
 export interface WaveClearSummary {
@@ -56,26 +62,27 @@ export interface NextWaveSignal {
 const INITIAL_HUD: HudState = {
   giantHeartHp: 100, heartsCollected: 0, score: 0,
   wave: 1, phase: "playing", gremlinsLeft: 8, gremlinsTotal: 8,
-  magnetActive: false, magnetTimer: 0,
-  gatlingCharge: 0,
+  magnetActive: false, magnetTimer: 0, gatlingCharge: 0,
+  ultCharge: 0, ultMax: 20, ultReady: false, ultActive: false, ultTimer: 0,
 };
 
 const INITIAL_UPGRADES: Upgrades = {
   attackLevel: 0, damageLevel: 0, harvestLevel: 0, healCount: 0,
-  cooldownLevel: 0, bulletSizeLevel: 0, bulletSpeedLevel: 0,
+  cooldownLevel: 0, bulletSizeLevel: 0, bulletSpeedLevel: 0, spreadLevel: 0,
 };
 
 export default function GameWorld() {
-  const joystickRef = useRef<JoystickState>({ dx: 0, dz: 0 });
-  const upgradesRef = useRef<Upgrades>(INITIAL_UPGRADES);
-  const nextWaveRef = useRef<NextWaveSignal>({ ready: false, wave: 1, giantHp: 100, hearts: 0 });
+  const joystickRef    = useRef<JoystickState>({ dx: 0, dz: 0 });
+  const upgradesRef    = useRef<Upgrades>(INITIAL_UPGRADES);
+  const nextWaveRef    = useRef<NextWaveSignal>({ ready: false, wave: 1, giantHp: 100, hearts: 0 });
+  const ultActivateRef = useRef<boolean>(false);
 
-  const [hud, setHud]         = useState<HudState>(INITIAL_HUD);
-  const [gameKey, setGameKey] = useState(0);
-  const [shopOpen, setShopOpen]         = useState(false);
-  const [shopSummary, setShopSummary]   = useState<WaveClearSummary | null>(null);
-  const [upgrades, setUpgrades]         = useState<Upgrades>(INITIAL_UPGRADES);
-  const [leaderboard, setLeaderboard]   = useState<ScoreEntry[]>(getLeaderboard);
+  const [hud, setHud]                     = useState<HudState>(INITIAL_HUD);
+  const [gameKey, setGameKey]             = useState(0);
+  const [shopOpen, setShopOpen]           = useState(false);
+  const [shopSummary, setShopSummary]     = useState<WaveClearSummary | null>(null);
+  const [upgrades, setUpgrades]           = useState<Upgrades>(INITIAL_UPGRADES);
+  const [leaderboard, setLeaderboard]     = useState<ScoreEntry[]>(getLeaderboard);
   const [selectedClass, setSelectedClass] = useState<PlayerClass | null>(null);
   const gameoverSavedRef = useRef(false);
 
@@ -87,9 +94,8 @@ export default function GameWorld() {
     }
   }, [hud.phase, hud.score, hud.wave]);
 
-  const handleHudUpdate = useCallback((next: HudState) => {
-    setHud(next);
-  }, []);
+  const handleHudUpdate    = useCallback((next: HudState) => setHud(next), []);
+  const handleUltActivate  = useCallback(() => { ultActivateRef.current = true; }, []);
 
   const handleWaveClear = useCallback((summary: WaveClearSummary) => {
     setShopSummary(summary);
@@ -113,8 +119,9 @@ export default function GameWorld() {
   }, [shopSummary]);
 
   const handleRestart = useCallback(() => {
-    upgradesRef.current = INITIAL_UPGRADES;
-    nextWaveRef.current = { ready: false, wave: 1, giantHp: 100, hearts: 0 };
+    upgradesRef.current    = INITIAL_UPGRADES;
+    nextWaveRef.current    = { ready: false, wave: 1, giantHp: 100, hearts: 0 };
+    ultActivateRef.current = false;
     setUpgrades(INITIAL_UPGRADES);
     setShopOpen(false);
     setShopSummary(null);
@@ -149,6 +156,7 @@ export default function GameWorld() {
           joystickRef={joystickRef}
           upgradesRef={upgradesRef}
           nextWaveRef={nextWaveRef}
+          ultActivateRef={ultActivateRef}
           playerClass={selectedClass}
           onHudUpdate={handleHudUpdate}
           onWaveClear={handleWaveClear}
@@ -159,7 +167,14 @@ export default function GameWorld() {
         {!shopOpen && (
           <>
             <Joystick joystickRef={joystickRef} />
-            <GameHUD hud={hud} onRestart={handleRestart} leaderboard={leaderboard} playerClass={selectedClass} upgrades={upgrades} />
+            <GameHUD
+              hud={hud}
+              onRestart={handleRestart}
+              leaderboard={leaderboard}
+              playerClass={selectedClass}
+              upgrades={upgrades}
+              onUltActivate={handleUltActivate}
+            />
           </>
         )}
         {shopOpen && shopSummary && (

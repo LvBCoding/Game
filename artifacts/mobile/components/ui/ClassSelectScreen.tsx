@@ -32,7 +32,8 @@ const CLASSES: ClassInfo[] = [
       "Moderate damage & fire rate",
       "Upgrades: Attack Speed, Power, Harvest",
       "Attack speed caps at 0.1s fire rate",
-      "Harvest multiplier caps at +5 hearts",
+      "Kill gremlins to charge a LASER ULTIMATE",
+      "Max attack speed unlocks Bullet Size",
     ],
   },
   {
@@ -42,11 +43,11 @@ const CLASSES: ClassInfo[] = [
     color: "#ff8800",
     icon: "reload",
     traits: [
-      "Tiny bullets, low damage (10 hits to kill)",
-      "Fire rate ramps up while targeting a gremlin",
-      "Loses all speed if no target for 1 second",
-      "Upgrade: Charge Speed (ramps up faster)",
-      "Max fire rate: 0.01s — pure devastation",
+      "Tiny bullets, 5 hits to kill",
+      "Fire rate ramps up while targeting",
+      "Loses speed if no target for 1 second",
+      "30% spin retained between waves",
+      "Max charge speed unlocks Damage boost",
     ],
   },
   {
@@ -56,10 +57,24 @@ const CLASSES: ClassInfo[] = [
     color: "#00ddaa",
     icon: "eye",
     traits: [
-      "Massive damage, sees the entire arena",
-      "Very slow fire rate (cannot be upgraded)",
+      "Massive damage, sees entire arena",
+      "Slow fire rate (upgradeable via overflow)",
       "Giant fast laser beam bullets",
       "Upgrades: Bullet Size, Bullet Speed",
+      "Max both unlocks Attack Speed",
+    ],
+  },
+  {
+    id: "shotgunner",
+    name: "Shotgunner",
+    tagline: "Get close, unload, devastate everything",
+    color: "#cc44ff",
+    icon: "git-branch",
+    traits: [
+      "Very high damage per bullet, short range",
+      "Fires a spread of bullets each shot",
+      "Upgrade: Spread (more bullets, wider cone)",
+      "Max spread unlocks Power upgrade",
     ],
   },
 ];
@@ -133,13 +148,8 @@ const styles = StyleSheet.create({
     marginTop: 4,
     letterSpacing: 1,
   },
-  scroll: {
-    flex: 1,
-  },
-  cards: {
-    gap: 14,
-    paddingBottom: 16,
-  },
+  scroll: { flex: 1 },
+  cards:  { gap: 14, paddingBottom: 16 },
   card: {
     backgroundColor: "#130028",
     borderRadius: 18,
@@ -159,9 +169,7 @@ const styles = StyleSheet.create({
     flexShrink: 0,
     marginTop: 2,
   },
-  info: {
-    flex: 1,
-  },
+  info:     { flex: 1 },
   className: {
     fontSize: 18,
     fontFamily: "Inter_700Bold",
@@ -173,16 +181,8 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     marginBottom: 8,
   },
-  traitRow: {
-    flexDirection: "row",
-    gap: 6,
-    marginBottom: 3,
-  },
-  bullet: {
-    fontSize: 12,
-    fontFamily: "Inter_700Bold",
-    lineHeight: 18,
-  },
+  traitRow: { flexDirection: "row", gap: 6, marginBottom: 3 },
+  bullet:   { fontSize: 12, fontFamily: "Inter_700Bold", lineHeight: 18 },
   trait: {
     color: "#ccaacc",
     fontSize: 12,
