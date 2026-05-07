@@ -3,76 +3,96 @@ import * as Haptics from "expo-haptics";
 import React, { useRef, useState } from "react";
 import * as THREE from "three";
 
-import type { HudState, JoystickState } from "./GameWorld";
+import type {
+  HudState,
+  JoystickState,
+  NextWaveSignal,
+  Upgrades,
+  WaveClearSummary,
+} from "./GameWorld";
 
-// ─── Game constants ──────────────────────────────────────────────────────────
-const ARENA        = 24;         // half-size (48×48 arena)
-const PLAYER_SPEED = 8;          // units/sec
-const GREMLIN_SPEED      = 1.6;  // units/sec wave 1
-const GREMLIN_SPEED_INC  = 0.35; // per wave
-const PROJ_SPEED         = 26;   // units/sec
-const PICKUP_R           = 2.2;  // heart collection radius
-const GREMLIN_HIT_R      = 1.4;  // projectile hit radius
-const GIANT_ATTACK_R     = 2.9;  // gremlin reaches giant heart
-const GIANT_HP_MAX       = 100;
-const GREMLIN_DMG        = 20;
-const HEART_INTERVAL     = 1.6;  // sec between heart spawns
-const GREMLIN_INTERVAL_BASE = 1.8; // sec between gremlin spawns (fast!)
-const AUTO_FIRE_INTERVAL = 1.1;  // sec between auto-shots
-const MAX_GREMLINS       = 22;
-const MAX_HEARTS         = 16;
+// ─── Constants ───────────────────────────────────────────────────────────────
+const ARENA           = 24;
+const PLAYER_SPEED    = 8;
+const PROJ_SPEED      = 24;
+const PICKUP_R        = 2.2;
+const GREMLIN_HIT_R   = 1.3;
+const GIANT_ATTACK_R  = 2.9;
+const GIANT_HP_MAX    = 100;
+const GREMLIN_DMG     = 20;
+const HEART_INTERVAL  = 1.8;
+const MAX_GREMLINS    = 18;
+const MAX_HEARTS      = 14;
+const FIRE_RANGE      = 14;   // max auto-fire range in units
+const BASE_FIRE_INT   = 1.8;  // base auto-fire interval (seconds)
+const MIN_FIRE_INT    = 0.5;
 
-// ─── Entity types ────────────────────────────────────────────────────────────
-interface GremlinData { id: string; pos: THREE.Vector3; hp: number }
+function gremlinsForWave(w: number)  { return 8 + (w - 1) * 5; }
+function gremlinHpForWave(w: number) { return 1 + Math.ceil(w / 2); }
+function spawnIntervalForWave(w: number) { return Math.max(0.8, 2.4 - (w - 1) * 0.2); }
+function gremlinSpeedForWave(w: number) { return 1.4 + (w - 1) * 0.28; }
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+interface GremlinData { id: string; pos: THREE.Vector3; hp: number; maxHp: number }
 interface HeartData   { id: string; pos: THREE.Vector3; bob: number }
 interface ProjData    { id: string; pos: THREE.Vector3; dir: THREE.Vector3 }
 
 interface GS {
-  player:    { pos: THREE.Vector3; facing: number };
-  gremlins:  GremlinData[];
-  hearts:    HeartData[];
-  projs:     ProjData[];
-  giantHp:   number;
-  hearts_collected: number;  // currency
-  score:     number;
-  wave:      number;
-  phase:     "playing" | "gameover";
-  frameN:    number;
-  uid:       number;
-  heartT:    number;
-  gremlinT:  number;
-  fireT:     number;   // countdown to next auto-shot
+  player:          { pos: THREE.Vector3; facing: number };
+  gremlins:        GremlinData[];
+  hearts:          HeartData[];
+  projs:           ProjData[];
+  giantHp:         number;
+  heartsCollected: number;
+  score:           number;
+  wave:            number;
+  phase:           "playing" | "waveclear" | "gameover";
+  frameN:          number;
+  uid:             number;
+  heartT:          number;
+  gremlinT:        number;
+  fireT:           number;
+  // Wave tracking
+  gremlinsThisWave: number;
+  gremlinsSpawned:  number;
+  gremlinsKilled:   number;
+  waveClearCalled:  boolean;
 }
 
-function initGS(): GS {
+function initGS(wave = 1, giantHp = GIANT_HP_MAX, hearts = 0): GS {
   return {
     player: { pos: new THREE.Vector3(0, 0, 8), facing: 0 },
     gremlins: [], hearts: [], projs: [],
-    giantHp: GIANT_HP_MAX,
-    hearts_collected: 0,
-    score: 0, wave: 1,
+    giantHp,
+    heartsCollected: hearts,
+    score: 0, wave,
     phase: "playing",
     frameN: 0, uid: 0,
-    heartT: 1.2, gremlinT: 1.5, fireT: 0.5,
+    heartT: 1.2, gremlinT: 2.0, fireT: 1.0,
+    gremlinsThisWave: gremlinsForWave(wave),
+    gremlinsSpawned: 0,
+    gremlinsKilled: 0,
+    waveClearCalled: false,
   };
 }
 
 const _dir    = new THREE.Vector3();
 const _camTgt = new THREE.Vector3();
 
+// ─── Props ────────────────────────────────────────────────────────────────────
 interface Props {
   joystickRef: React.MutableRefObject<JoystickState>;
+  upgradesRef: React.MutableRefObject<Upgrades>;
+  nextWaveRef: React.MutableRefObject<NextWaveSignal>;
   onHudUpdate: (h: HudState) => void;
+  onWaveClear: (s: WaveClearSummary) => void;
 }
 
 const PILLARS: [number, number][] = [
-  [-24, -24], [-12, -24], [0, -24], [12, -24], [24, -24],
-  [24, -12],  [24, 0],    [24, 12], [24, 24],
-  [12, 24],   [0, 24],    [-12, 24], [-24, 24],
-  [-24, 12],  [-24, 0],   [-24, -12],
+  [-24,-24],[0,-24],[24,-24],[24,0],[24,24],[0,24],[-24,24],[-24,0],
 ];
 
-export function GameScene({ joystickRef, onHudUpdate }: Props) {
+export function GameScene({ joystickRef, upgradesRef, nextWaveRef, onHudUpdate, onWaveClear }: Props) {
   const { camera } = useThree();
   const gs = useRef<GS>(initGS());
 
@@ -88,20 +108,74 @@ export function GameScene({ joystickRef, onHudUpdate }: Props) {
 
   useFrame((state, rawDelta) => {
     const g = gs.current;
-    if (g.phase !== "playing") return;
-
     const dt = Math.min(rawDelta, 0.1);
     const t  = state.clock.elapsedTime;
     g.frameN++;
     let changed = false;
     const uid = () => String(++g.uid);
+    const upg = upgradesRef.current;
+
+    // ── Next-wave signal ──────────────────────────────────────────────────────
+    if (g.phase === "waveclear" && nextWaveRef.current.ready) {
+      const nw = nextWaveRef.current;
+      nextWaveRef.current = { ...nw, ready: false };
+      g.wave            = nw.wave;
+      g.giantHp         = Math.min(GIANT_HP_MAX, nw.giantHp);
+      g.heartsCollected = nw.hearts;
+      g.gremlinsThisWave = gremlinsForWave(nw.wave);
+      g.gremlinsSpawned  = 0;
+      g.gremlinsKilled   = 0;
+      g.waveClearCalled  = false;
+      g.phase  = "playing";
+      g.heartT = 1.2;
+      g.gremlinT = 2.0;
+      g.fireT  = 1.0;
+      g.gremlins = []; g.projs = [];
+      setGremlinIds([]); setProjIds([]);
+      changed = true;
+    }
+
+    if (g.phase === "gameover") {
+      // Still update camera so scene isn't frozen
+      _camTgt.set(g.player.pos.x, 32, g.player.pos.z);
+      camera.position.lerp(_camTgt, Math.min(dt * 5, 1));
+      camera.up.set(0, 0, -1);
+      camera.lookAt(g.player.pos.x, 0, g.player.pos.z);
+      return;
+    }
+
+    // ── Wave clear check ──────────────────────────────────────────────────────
+    if (g.phase === "playing" &&
+        g.gremlinsKilled >= g.gremlinsThisWave &&
+        g.gremlins.length === 0 &&
+        !g.waveClearCalled) {
+      g.waveClearCalled = true;
+      g.phase = "waveclear";
+      onWaveClear({
+        heartsCollected: g.heartsCollected,
+        giantHp:         g.giantHp,
+        wave:            g.wave,
+        score:           g.score,
+      });
+    }
+
+    if (g.phase !== "playing") {
+      // Animate hearts bobbing in background during shop
+      g.hearts.forEach(h => {
+        const m = heartMap.current.get(h.id);
+        if (m) m.position.y = 0.5 + Math.sin(t * 2.5 + h.bob) * 0.2;
+      });
+      camera.up.set(0, 0, -1);
+      camera.lookAt(g.player.pos.x, 0, g.player.pos.z);
+      return;
+    }
 
     // ── Spawn hearts ──────────────────────────────────────────────────────────
     g.heartT -= dt;
     if (g.heartT <= 0 && g.hearts.length < MAX_HEARTS) {
       g.heartT = HEART_INTERVAL;
       const angle = Math.random() * Math.PI * 2;
-      const r = 4 + Math.random() * 16;
+      const r = 4 + Math.random() * 15;
       g.hearts.push({
         id: uid(),
         pos: new THREE.Vector3(Math.cos(angle) * r, 0, Math.sin(angle) * r),
@@ -112,8 +186,10 @@ export function GameScene({ joystickRef, onHudUpdate }: Props) {
 
     // ── Spawn gremlins ────────────────────────────────────────────────────────
     g.gremlinT -= dt;
-    if (g.gremlinT <= 0 && g.gremlins.length < MAX_GREMLINS) {
-      g.gremlinT = Math.max(0.7, GREMLIN_INTERVAL_BASE - g.wave * 0.15);
+    if (g.gremlinT <= 0 &&
+        g.gremlins.length < MAX_GREMLINS &&
+        g.gremlinsSpawned < g.gremlinsThisWave) {
+      g.gremlinT = spawnIntervalForWave(g.wave);
       const side = Math.floor(Math.random() * 4);
       const e = ARENA + 1;
       const rnd = () => -ARENA + Math.random() * ARENA * 2;
@@ -122,41 +198,41 @@ export function GameScene({ joystickRef, onHudUpdate }: Props) {
         : side === 1 ? new THREE.Vector3(e, 0, rnd())
         : side === 2 ? new THREE.Vector3(rnd(), 0, e)
         : new THREE.Vector3(-e, 0, rnd());
-      g.gremlins.push({ id: uid(), pos: sp, hp: 1 });
+      const hp = gremlinHpForWave(g.wave);
+      g.gremlins.push({ id: uid(), pos: sp, hp, maxHp: hp });
+      g.gremlinsSpawned++;
       changed = true;
     }
 
     // ── Player movement ───────────────────────────────────────────────────────
-    const joy    = joystickRef.current;
-    const moving = Math.hypot(joy.dx, joy.dz) > 0.05;
-    if (moving) {
+    const joy = joystickRef.current;
+    if (Math.hypot(joy.dx, joy.dz) > 0.05) {
       const sp = PLAYER_SPEED * dt;
       g.player.pos.x = Math.max(-ARENA, Math.min(ARENA, g.player.pos.x + joy.dx * sp));
       g.player.pos.z = Math.max(-ARENA, Math.min(ARENA, g.player.pos.z + joy.dz * sp));
       g.player.facing = Math.atan2(joy.dx, joy.dz);
     }
 
-    // ── Heart pickups (currency) ──────────────────────────────────────────────
+    // ── Heart pickups ─────────────────────────────────────────────────────────
     for (let i = g.hearts.length - 1; i >= 0; i--) {
       if (g.player.pos.distanceTo(g.hearts[i].pos) < PICKUP_R) {
         g.hearts.splice(i, 1);
-        g.hearts_collected += 1;
-        g.score += 5;
+        g.heartsCollected += 1 + upg.harvestLevel;
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         changed = true;
       }
     }
 
-    // ── Auto-fire at nearest gremlin ──────────────────────────────────────────
+    // ── Auto-fire (ranged, upgradeable interval) ──────────────────────────────
+    const fireInt = Math.max(MIN_FIRE_INT, BASE_FIRE_INT - upg.attackLevel * 0.22);
     g.fireT -= dt;
     if (g.fireT <= 0) {
-      g.fireT = AUTO_FIRE_INTERVAL;
-      // Find nearest gremlin
+      g.fireT = fireInt;
       let nearest: GremlinData | null = null;
       let nearestDist = Infinity;
       for (const gr of g.gremlins) {
         const d = g.player.pos.distanceTo(gr.pos);
-        if (d < nearestDist) { nearestDist = d; nearest = gr; }
+        if (d < nearestDist && d <= FIRE_RANGE) { nearestDist = d; nearest = gr; }
       }
       if (nearest) {
         _dir.subVectors(nearest.pos, g.player.pos).normalize();
@@ -167,18 +243,18 @@ export function GameScene({ joystickRef, onHudUpdate }: Props) {
           dir: _dir.clone(),
         });
         changed = true;
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       }
     }
 
-    // ── Move gremlins → giant heart ───────────────────────────────────────────
-    const gSpd = (GREMLIN_SPEED + (g.wave - 1) * GREMLIN_SPEED_INC) * dt;
+    // ── Move gremlins ─────────────────────────────────────────────────────────
+    const gSpd = gremlinSpeedForWave(g.wave) * dt;
     for (let i = g.gremlins.length - 1; i >= 0; i--) {
       const gr = g.gremlins[i];
       _dir.set(-gr.pos.x, 0, -gr.pos.z).normalize();
       gr.pos.addScaledVector(_dir, gSpd);
       if (gr.pos.length() < GIANT_ATTACK_R) {
         g.gremlins.splice(i, 1);
+        g.gremlinsKilled++;
         g.giantHp = Math.max(0, g.giantHp - GREMLIN_DMG);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         if (g.giantHp <= 0) g.phase = "gameover";
@@ -187,6 +263,7 @@ export function GameScene({ joystickRef, onHudUpdate }: Props) {
     }
 
     // ── Move projectiles + collision ──────────────────────────────────────────
+    const projDmg = 1 + upg.damageLevel;
     const pSpd = PROJ_SPEED * dt;
     for (let pi = g.projs.length - 1; pi >= 0; pi--) {
       const p = g.projs[pi];
@@ -197,11 +274,11 @@ export function GameScene({ joystickRef, onHudUpdate }: Props) {
       let hit = false;
       for (let gi = g.gremlins.length - 1; gi >= 0; gi--) {
         if (p.pos.distanceTo(g.gremlins[gi].pos) < GREMLIN_HIT_R) {
-          g.gremlins[gi].hp--;
+          g.gremlins[gi].hp -= projDmg;
           if (g.gremlins[gi].hp <= 0) {
             g.gremlins.splice(gi, 1);
+            g.gremlinsKilled++;
             g.score += 10;
-            if (g.score % 100 === 0) g.wave++;
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
           }
           hit = true; break;
@@ -210,17 +287,15 @@ export function GameScene({ joystickRef, onHudUpdate }: Props) {
       if (hit) { g.projs.splice(pi, 1); changed = true; }
     }
 
-    // ── Update mesh transforms ────────────────────────────────────────────────
+    // ── Update mesh positions ─────────────────────────────────────────────────
     if (playerMesh.current) {
       playerMesh.current.position.set(g.player.pos.x, 0.75, g.player.pos.z);
       playerMesh.current.rotation.y = g.player.facing;
     }
-
     for (const gr of g.gremlins) {
       const m = gremlinMap.current.get(gr.id);
       if (m) { m.position.set(gr.pos.x, 0, gr.pos.z); m.lookAt(0, 0, 0); }
     }
-
     for (const h of g.hearts) {
       const m = heartMap.current.get(h.id);
       if (m) {
@@ -228,34 +303,33 @@ export function GameScene({ joystickRef, onHudUpdate }: Props) {
         m.rotation.y = t * 2 + h.bob;
       }
     }
-
     for (const p of g.projs) {
       const m = projMap.current.get(p.id);
       if (m) m.position.copy(p.pos);
     }
 
-    // Giant heart pulse + HP tint
     if (giantMesh.current) {
       giantMesh.current.scale.setScalar(1 + Math.sin(t * 2.2) * 0.07);
       const r = g.giantHp / GIANT_HP_MAX;
       (giantMesh.current.material as THREE.MeshLambertMaterial).color.setRGB(1, r * 0.08, r * 0.18);
     }
 
-    // ── Top-down camera follow ────────────────────────────────────────────────
+    // ── Camera ────────────────────────────────────────────────────────────────
     _camTgt.set(g.player.pos.x, 32, g.player.pos.z);
     camera.position.lerp(_camTgt, Math.min(dt * 5, 1));
-    // Keep camera up vector pointing toward -Z so top of screen = north
     camera.up.set(0, 0, -1);
     camera.lookAt(g.player.pos.x, 0, g.player.pos.z);
 
     // ── HUD update ────────────────────────────────────────────────────────────
     if (g.frameN % 2 === 0) {
       onHudUpdate({
-        giantHeartHp:      g.giantHp,
-        heartsCollected:   g.hearts_collected,
-        score:             g.score,
-        wave:              g.wave,
-        phase:             g.phase,
+        giantHeartHp:    g.giantHp,
+        heartsCollected: g.heartsCollected,
+        score:           g.score,
+        wave:            g.wave,
+        phase:           g.phase,
+        gremlinsLeft:    g.gremlinsThisWave - g.gremlinsKilled,
+        gremlinsTotal:   g.gremlinsThisWave,
       });
     }
 
@@ -272,14 +346,12 @@ export function GameScene({ joystickRef, onHudUpdate }: Props) {
       <directionalLight position={[10, 20, 10]} intensity={1.0} />
       <pointLight position={[0, 6, 0]} color="#ff3366" intensity={6} distance={20} decay={2} />
 
-      {/* Ground */}
       <mesh rotation={[-Math.PI / 2, 0, 0]}>
         <planeGeometry args={[ARENA * 2, ARENA * 2]} />
         <meshLambertMaterial color="#0e001f" />
       </mesh>
       <gridHelper args={[ARENA * 2, 32, "#220044", "#180030"]} />
 
-      {/* Boundary markers */}
       {PILLARS.map(([px, pz], i) => (
         <mesh key={i} position={[px, 0.6, pz]}>
           <cylinderGeometry args={[0.25, 0.35, 1.2, 6]} />
@@ -287,7 +359,7 @@ export function GameScene({ joystickRef, onHudUpdate }: Props) {
         </mesh>
       ))}
 
-      {/* Giant Heart — ASSET SLOT: replace with assets/models/giant-heart.glb */}
+      {/* Giant Heart — ASSET SLOT: assets/models/giant-heart.glb */}
       <mesh ref={giantMesh} position={[0, 1.5, 0]}>
         <sphereGeometry args={[2.5, 24, 24]} />
         <meshLambertMaterial color="#ff0044" />
@@ -297,21 +369,17 @@ export function GameScene({ joystickRef, onHudUpdate }: Props) {
         <meshBasicMaterial color="#ff0044" transparent opacity={0.1} />
       </mesh>
 
-      {/* Player — ASSET SLOT: replace with assets/models/player.glb */}
+      {/* Player — ASSET SLOT: assets/models/player.glb */}
       <mesh ref={playerMesh} position={[0, 0.75, 8]}>
         <boxGeometry args={[0.9, 1.5, 0.7]} />
         <meshLambertMaterial color="#2255ff" />
       </mesh>
 
-      {/* Gremlins — ASSET SLOT: replace group with assets/models/gremlin.glb */}
+      {/* Gremlins — ASSET SLOT: assets/models/gremlin.glb */}
       {gremlinIds.map(id => (
-        <group
-          key={id}
-          ref={(el: THREE.Group | null) => {
-            if (el) gremlinMap.current.set(id, el);
-            else gremlinMap.current.delete(id);
-          }}
-        >
+        <group key={id} ref={(el: THREE.Group | null) => {
+          if (el) gremlinMap.current.set(id, el); else gremlinMap.current.delete(id);
+        }}>
           <mesh position={[0, 0.7, 0]}>
             <boxGeometry args={[0.75, 1.4, 0.75]} />
             <meshLambertMaterial color="#33ee33" />
@@ -327,29 +395,21 @@ export function GameScene({ joystickRef, onHudUpdate }: Props) {
         </group>
       ))}
 
-      {/* Collectible hearts (currency) — ASSET SLOT: replace with assets/models/heart-pickup.glb */}
+      {/* Collectible hearts — ASSET SLOT: assets/models/heart-pickup.glb */}
       {heartIds.map(id => (
-        <mesh
-          key={id}
-          ref={(el: THREE.Mesh | null) => {
-            if (el) heartMap.current.set(id, el);
-            else heartMap.current.delete(id);
-          }}
-        >
+        <mesh key={id} ref={(el: THREE.Mesh | null) => {
+          if (el) heartMap.current.set(id, el); else heartMap.current.delete(id);
+        }}>
           <sphereGeometry args={[0.45, 12, 12]} />
           <meshLambertMaterial color="#ff3388" emissive="#ff1155" emissiveIntensity={0.8} />
         </mesh>
       ))}
 
-      {/* Auto-fire projectiles */}
+      {/* Projectiles */}
       {projIds.map(id => (
-        <mesh
-          key={id}
-          ref={(el: THREE.Mesh | null) => {
-            if (el) projMap.current.set(id, el);
-            else projMap.current.delete(id);
-          }}
-        >
+        <mesh key={id} ref={(el: THREE.Mesh | null) => {
+          if (el) projMap.current.set(id, el); else projMap.current.delete(id);
+        }}>
           <sphereGeometry args={[0.28, 10, 10]} />
           <meshLambertMaterial color="#ffaadd" emissive="#ff3366" emissiveIntensity={2.5} />
         </mesh>

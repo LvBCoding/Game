@@ -12,7 +12,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { HudState } from "@/components/game/GameWorld";
 
 interface Props {
-  hud: HudState;
+  hud:       HudState;
   onRestart: () => void;
 }
 
@@ -20,16 +20,17 @@ export function GameHUD({ hud, onRestart }: Props) {
   const insets = useSafeAreaInsets();
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
 
-  const { giantHeartHp, heartsCollected, score, wave, phase } = hud;
+  const { giantHeartHp, heartsCollected, score, wave, phase, gremlinsLeft, gremlinsTotal } = hud;
   const hpRatio = Math.max(0, giantHeartHp) / 100;
+  const waveProgress = Math.max(0, gremlinsTotal - gremlinsLeft) / Math.max(1, gremlinsTotal);
 
   return (
     <>
       {/* Top bar */}
-      <View style={[styles.topBar, { paddingTop: topPad + 8 }]} pointerEvents="none">
+      <View style={[styles.topBar, { paddingTop: topPad + 6 }]} pointerEvents="none">
         {/* Giant heart HP */}
         <View style={styles.hpBlock}>
-          <Ionicons name="heart" size={16} color="#ff3366" />
+          <Ionicons name="heart" size={15} color="#ff3366" />
           <View style={styles.hpBg}>
             <View
               style={[
@@ -37,36 +38,43 @@ export function GameHUD({ hud, onRestart }: Props) {
                 {
                   width: `${hpRatio * 100}%` as any,
                   backgroundColor:
-                    hpRatio > 0.5 ? "#ff3366" : hpRatio > 0.25 ? "#ff8800" : "#ff0000",
+                    hpRatio > 0.5 ? "#ff3366" : hpRatio > 0.25 ? "#ff8800" : "#ff2200",
                 },
               ]}
             />
           </View>
+          <Text style={styles.hpNum}>{Math.ceil(giantHeartHp)}</Text>
         </View>
 
-        {/* Wave */}
-        <Text style={styles.waveText}>W{wave}</Text>
+        <View style={styles.midBlock}>
+          <Text style={styles.waveLabel}>WAVE {wave}</Text>
+          {/* Wave progress bar */}
+          <View style={styles.waveBg}>
+            <View style={[styles.waveFill, { width: `${waveProgress * 100}%` as any }]} />
+          </View>
+          <Text style={styles.gremlinCount}>{gremlinsLeft} left</Text>
+        </View>
 
-        {/* Score */}
         <Text style={styles.scoreText}>{score}</Text>
       </View>
 
-      {/* Hearts currency — bottom center above joystick */}
+      {/* Hearts currency badge */}
       <View style={styles.currencyBadge} pointerEvents="none">
-        <Ionicons name="heart" size={18} color="#ff3366" />
-        <Text style={styles.currencyText}>{heartsCollected}</Text>
+        <Ionicons name="heart" size={17} color="#ff3366" />
+        <Text style={styles.currencyNum}>{heartsCollected}</Text>
       </View>
 
-      {/* Game over */}
+      {/* Game over overlay */}
       {phase === "gameover" && (
         <View style={styles.overlay}>
           <View style={styles.card}>
             <Text style={styles.overTitle}>THE HEART FELL</Text>
-            <Text style={styles.overSub}>Score</Text>
+            <Text style={styles.overSub}>Wave {wave}  ·  Score</Text>
             <Text style={styles.overScore}>{score}</Text>
-            <Text style={styles.overHearts}>
-              <Ionicons name="heart" size={18} color="#ff3366" /> {heartsCollected} hearts collected
-            </Text>
+            <View style={styles.overHeartRow}>
+              <Ionicons name="heart" size={18} color="#ff3366" />
+              <Text style={styles.overHeartText}>{heartsCollected} hearts collected</Text>
+            </View>
             <TouchableOpacity style={styles.restartBtn} onPress={onRestart}>
               <Ionicons name="refresh" size={20} color="#fff" />
               <Text style={styles.restartLabel}>TRY AGAIN</Text>
@@ -81,65 +89,92 @@ export function GameHUD({ hud, onRestart }: Props) {
 const styles = StyleSheet.create({
   topBar: {
     position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
+    top: 0, left: 0, right: 0,
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     paddingBottom: 10,
-    backgroundColor: "rgba(0,0,0,0.45)",
+    backgroundColor: "rgba(0,0,0,0.5)",
     zIndex: 10,
   },
   hpBlock: {
-    flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 5,
   },
   hpBg: {
-    flex: 1,
-    height: 10,
+    width: 80,
+    height: 9,
     backgroundColor: "#1e003a",
     borderRadius: 5,
     overflow: "hidden",
     borderWidth: 1,
     borderColor: "#5a0080",
-    maxWidth: 180,
   },
   hpFill: {
     height: "100%",
     borderRadius: 5,
   },
-  waveText: {
-    color: "#aa77cc",
-    fontSize: 13,
+  hpNum: {
+    color: "#fff",
+    fontSize: 12,
     fontFamily: "Inter_600SemiBold",
-    letterSpacing: 1,
+    minWidth: 22,
+  },
+  midBlock: {
+    flex: 1,
+    alignItems: "center",
+  },
+  waveLabel: {
+    color: "#cc99ff",
+    fontSize: 11,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 2,
+    marginBottom: 3,
+  },
+  waveBg: {
+    width: "100%",
+    maxWidth: 100,
+    height: 5,
+    backgroundColor: "#1e003a",
+    borderRadius: 3,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "#440080",
+  },
+  waveFill: {
+    height: "100%",
+    backgroundColor: "#9933ff",
+    borderRadius: 3,
+  },
+  gremlinCount: {
+    color: "#8855cc",
+    fontSize: 10,
+    fontFamily: "Inter_500Medium",
+    marginTop: 2,
   },
   scoreText: {
     color: "#fff",
-    fontSize: 20,
+    fontSize: 19,
     fontFamily: "Inter_700Bold",
-    minWidth: 40,
+    minWidth: 36,
     textAlign: "right",
   },
   currencyBadge: {
     position: "absolute",
-    bottom: 180,
-    alignSelf: "center",
+    bottom: 200,
     left: 0,
     right: 0,
-    alignItems: "center",
     flexDirection: "row",
     justifyContent: "center",
+    alignItems: "center",
     gap: 6,
     zIndex: 10,
   },
-  currencyText: {
+  currencyNum: {
     color: "#ff99cc",
-    fontSize: 22,
+    fontSize: 20,
     fontFamily: "Inter_700Bold",
   },
   overlay: {
@@ -156,34 +191,38 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderWidth: 1,
     borderColor: "#5a0080",
-    width: "80%",
+    width: "82%",
   },
   overTitle: {
     color: "#ff3366",
     fontSize: 26,
     fontFamily: "Inter_700Bold",
     letterSpacing: 2,
-    marginBottom: 16,
-    textAlign: "center",
+    marginBottom: 14,
   },
   overSub: {
     color: "#aa77aa",
     fontSize: 13,
     fontFamily: "Inter_500Medium",
-    letterSpacing: 2,
+    letterSpacing: 1,
     marginBottom: 4,
   },
   overScore: {
     color: "#fff",
     fontSize: 52,
     fontFamily: "Inter_700Bold",
-    marginBottom: 8,
+    marginBottom: 10,
   },
-  overHearts: {
+  overHeartRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 28,
+  },
+  overHeartText: {
     color: "#ff99cc",
     fontSize: 14,
     fontFamily: "Inter_500Medium",
-    marginBottom: 28,
   },
   restartBtn: {
     flexDirection: "row",
