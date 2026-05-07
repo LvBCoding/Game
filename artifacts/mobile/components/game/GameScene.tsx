@@ -14,7 +14,7 @@ import type {
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const ARENA           = 24;
-const PLAYER_SPEED    = 8;
+const PLAYER_SPEED    = 11;
 const PICKUP_R        = 2.2;
 const MAGNET_PICKUP_R = 1.8;
 const GREMLIN_HIT_R   = 1.3;
@@ -29,27 +29,27 @@ const MAGNET_SUCTION  = 18;
 const MAGNET_DROP_CHANCE = 0.01;
 
 // Classic
-const CLASSIC_PROJ_SPEED  = 24;
-const CLASSIC_BASE_FIRE   = 1.8;
+const CLASSIC_PROJ_SPEED  = 28;
+const CLASSIC_BASE_FIRE   = 1.0;
 const CLASSIC_MIN_FIRE    = 0.1;
 const CLASSIC_FIRE_RANGE  = 14;
 const CLASSIC_PROJ_RADIUS = 0.28;
 const MAX_HARVEST_LEVEL   = 5;
 
 // Gatling
-const GATLING_BASE_FIRE    = 2.5;
+const GATLING_BASE_FIRE    = 1.5;
 const GATLING_MIN_FIRE     = 0.01;
 const GATLING_PROJ_SPEED   = 40;
 const GATLING_PROJ_RADIUS  = 0.13;
-const GATLING_FIRE_RANGE   = 14;
+const GATLING_FIRE_RANGE   = 16;
 const GATLING_DAMAGE       = 0.2;
 const GATLING_NO_TGT_RESET = 1.0;
 const GATLING_DRIFT_RATE   = 0.22;   // interval drifts up this many sec/sec while targeting
-const GATLING_EFF_DECAY    = 0.09;   // ramp efficiency lost per shot fired
+const GATLING_EFF_DECAY    = 0.07;   // ramp efficiency lost per shot fired
 const GATLING_EFF_MIN      = 0.15;   // minimum ramp efficiency
 
 // Sniper
-const SNIPER_BASE_FIRE    = 2.5;
+const SNIPER_BASE_FIRE    = 1.8;
 const SNIPER_FIRE_RANGE   = 80;
 const SNIPER_PROJ_SPEED_BASE = 50;
 const SNIPER_PROJ_RADIUS_BASE = 0.6;
