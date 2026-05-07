@@ -354,10 +354,6 @@ export function GameScene({ joystickRef, upgradesRef, nextWaveRef, playerClass, 
 
       if (nearest) {
         g.gatlingNoTgtT = 0;
-        // Drift: interval slowly creeps back up even while targeting
-        g.gatlingFireInt = Math.min(GATLING_BASE_FIRE,
-          g.gatlingFireInt + GATLING_DRIFT_RATE * dt
-        );
         g.fireT -= dt;
         if (g.fireT <= 0) {
           g.fireT = g.gatlingFireInt;
