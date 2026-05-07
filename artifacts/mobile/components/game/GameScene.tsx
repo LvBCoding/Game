@@ -28,7 +28,7 @@ const BASE_FIRE_INT   = 1.8;  // base auto-fire interval (seconds)
 const MIN_FIRE_INT    = 0.5;
 
 function gremlinsForWave(w: number)  { return 8 + (w - 1) * 5; }
-function gremlinHpForWave(w: number) { return 1 + Math.ceil(w / 2); }
+function gremlinHpForWave(w: number) { return 1 + Math.floor(w / 5); }
 function spawnIntervalForWave(w: number) { return Math.max(0.8, 2.4 - (w - 1) * 0.2); }
 function gremlinSpeedForWave(w: number) { return 1.4 + (w - 1) * 0.28; }
 
