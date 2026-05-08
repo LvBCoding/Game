@@ -53,7 +53,6 @@ const GATLING_PROJ_SPEED   = 40;
 const GATLING_PROJ_RADIUS  = 0.13;
 const GATLING_FIRE_RANGE   = 16;
 const GATLING_DAMAGE       = 0.2;
-const GATLING_NO_TGT_RESET = 1.0;
 const GATLING_EFF_DECAY    = 0.07;
 const GATLING_EFF_MIN      = 0.15;
 
@@ -441,12 +440,10 @@ export function GameScene({
           changed = true;
         }
       } else {
-        g.gatlingNoTgtT += dt;
-        if (g.gatlingNoTgtT >= GATLING_NO_TGT_RESET) {
-          g.gatlingFireInt = GATLING_BASE_FIRE;
-          g.gatlingRampEff = 1.0;
-          g.fireT          = g.gatlingFireInt;
-        }
+        // Drain spin incrementally: ~10% of full range per second
+        const drainRate = (GATLING_BASE_FIRE - GATLING_MIN_FIRE) * 0.10;
+        g.gatlingFireInt = Math.min(GATLING_BASE_FIRE, g.gatlingFireInt + drainRate * dt);
+        g.gatlingRampEff = Math.min(1.0, g.gatlingRampEff + dt * 0.4);
       }
 
     } else if (playerClass === "sniper") {

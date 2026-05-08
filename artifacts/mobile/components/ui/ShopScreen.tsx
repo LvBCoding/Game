@@ -13,7 +13,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { PlayerClass, Upgrades } from "@/components/game/GameWorld";
 
 // ─── Shared constants (must match GameScene) ─────────────────────────────────
-const MAX_HARVEST_LEVEL = 5;
+const MAX_HARVEST_LEVEL   = 1;  // 0 = 1x, 1 = 2x (hard cap)
+const MAX_ATTACK_LEVEL    = 8;
+const MAX_COOLDOWN_LEVEL  = 8;
+const MAX_BULLET_SIZE_LVL = 5;
+const MAX_BULLET_SPD_LVL  = 5;
+const MAX_SPREAD_LEVEL    = 5;
 
 // ─── Wave preview helpers (must match GameScene) ──────────────────────────────
 function nextGremlinCount(w: number)  { return 15 + (w - 1) * 7; }
@@ -70,8 +75,14 @@ export function ShopScreen({
       : healCost(upgs.healCount);
 
     if (hearts < cost) return;
-    if (type === "heal" && (healUsed || giantHp >= 100)) return;
-    if (type === "harvest" && upgs.harvestLevel >= MAX_HARVEST_LEVEL) return;
+    if (type === "heal"        && (healUsed || giantHp >= 100))              return;
+    if (type === "harvest"     && upgs.harvestLevel >= MAX_HARVEST_LEVEL)    return;
+    if (type === "attack"      && upgs.attackLevel >= MAX_ATTACK_LEVEL)      return;
+    if (type === "damage"      && upgs.damageLevel >= wave)                  return;
+    if (type === "cooldown"    && upgs.cooldownLevel >= MAX_COOLDOWN_LEVEL)  return;
+    if (type === "bulletSize"  && upgs.bulletSizeLevel >= MAX_BULLET_SIZE_LVL) return;
+    if (type === "bulletSpeed" && upgs.bulletSpeedLevel >= MAX_BULLET_SPD_LVL) return;
+    if (type === "spread"      && upgs.spreadLevel >= MAX_SPREAD_LEVEL)      return;
 
     setHearts(h => h - cost);
 
@@ -94,7 +105,13 @@ export function ShopScreen({
   };
 
   const canAfford = (cost: number) => hearts >= cost;
-  const harvestMaxed = upgs.harvestLevel >= MAX_HARVEST_LEVEL;
+  const harvestMaxed     = upgs.harvestLevel >= MAX_HARVEST_LEVEL;
+  const attackMaxed      = upgs.attackLevel >= MAX_ATTACK_LEVEL;
+  const damageMaxed      = upgs.damageLevel >= wave;
+  const cooldownMaxed    = upgs.cooldownLevel >= MAX_COOLDOWN_LEVEL;
+  const bulletSizeMaxed  = upgs.bulletSizeLevel >= MAX_BULLET_SIZE_LVL;
+  const bulletSpeedMaxed = upgs.bulletSpeedLevel >= MAX_BULLET_SPD_LVL;
+  const spreadMaxed      = upgs.spreadLevel >= MAX_SPREAD_LEVEL;
 
   const classLabel =
     playerClass === "classic"    ? "Heartbreaker"
@@ -154,17 +171,20 @@ export function ShopScreen({
               desc={`Fire interval: ${classicFireInterval(upgs.attackLevel)}s → ${classicFireInterval(upgs.attackLevel + 1)}s`}
               level={upgs.attackLevel}
               cost={attackCost(upgs.attackLevel)}
-              canAfford={canAfford(attackCost(upgs.attackLevel))}
+              canAfford={canAfford(attackCost(upgs.attackLevel)) && !attackMaxed}
+              maxed={attackMaxed}
               onBuy={() => buy("attack")}
             />
             <UpgradeCard
               icon="flame"
               color="#ff4400"
               title="Power"
-              desc={`Damage per shot: ${1 + upgs.damageLevel} → ${2 + upgs.damageLevel} HP`}
+              desc={`Damage: ${(0.5 + upgs.damageLevel * 0.5).toFixed(1)} → ${(0.5 + (upgs.damageLevel + 1) * 0.5).toFixed(1)} per shot  •  cap: ${wave}/wave`}
               level={upgs.damageLevel}
               cost={damageCost(upgs.damageLevel)}
-              canAfford={canAfford(damageCost(upgs.damageLevel))}
+              canAfford={canAfford(damageCost(upgs.damageLevel)) && !damageMaxed}
+              maxed={damageMaxed}
+              disabledReason={damageMaxed ? `Wave ${wave} cap reached` : undefined}
               onBuy={() => buy("damage")}
             />
           </>
@@ -179,7 +199,8 @@ export function ShopScreen({
             desc={`Spins up ${Math.round((0.25 + upgs.cooldownLevel * 0.06) * 100)}% faster per shot → ${Math.round((0.25 + (upgs.cooldownLevel + 1) * 0.06) * 100)}%`}
             level={upgs.cooldownLevel}
             cost={cooldownCost(upgs.cooldownLevel)}
-            canAfford={canAfford(cooldownCost(upgs.cooldownLevel))}
+            canAfford={canAfford(cooldownCost(upgs.cooldownLevel)) && !cooldownMaxed}
+            maxed={cooldownMaxed}
             onBuy={() => buy("cooldown")}
           />
         )}
@@ -194,7 +215,8 @@ export function ShopScreen({
               desc={`Radius: ${(0.6 + upgs.bulletSizeLevel * 0.25).toFixed(2)} → ${(0.6 + (upgs.bulletSizeLevel + 1) * 0.25).toFixed(2)} (wider beam)`}
               level={upgs.bulletSizeLevel}
               cost={bulletSizeCost(upgs.bulletSizeLevel)}
-              canAfford={canAfford(bulletSizeCost(upgs.bulletSizeLevel))}
+              canAfford={canAfford(bulletSizeCost(upgs.bulletSizeLevel)) && !bulletSizeMaxed}
+              maxed={bulletSizeMaxed}
               onBuy={() => buy("bulletSize")}
             />
             <UpgradeCard
@@ -204,7 +226,8 @@ export function ShopScreen({
               desc={`Speed: ${50 + upgs.bulletSpeedLevel * 12} → ${50 + (upgs.bulletSpeedLevel + 1) * 12} units/s`}
               level={upgs.bulletSpeedLevel}
               cost={bulletSpeedCost(upgs.bulletSpeedLevel)}
-              canAfford={canAfford(bulletSpeedCost(upgs.bulletSpeedLevel))}
+              canAfford={canAfford(bulletSpeedCost(upgs.bulletSpeedLevel)) && !bulletSpeedMaxed}
+              maxed={bulletSpeedMaxed}
               onBuy={() => buy("bulletSpeed")}
             />
           </>
@@ -219,7 +242,8 @@ export function ShopScreen({
             desc={`${3 + upgs.spreadLevel} bullets, ±${Math.round((0.35 + upgs.spreadLevel * 0.07) * 57)}° → ${3 + upgs.spreadLevel + 1} bullets, ±${Math.round((0.35 + (upgs.spreadLevel + 1) * 0.07) * 57)}°`}
             level={upgs.spreadLevel}
             cost={spreadCost(upgs.spreadLevel)}
-            canAfford={canAfford(spreadCost(upgs.spreadLevel))}
+            canAfford={canAfford(spreadCost(upgs.spreadLevel)) && !spreadMaxed}
+            maxed={spreadMaxed}
             onBuy={() => buy("spread")}
           />
         )}
@@ -229,7 +253,7 @@ export function ShopScreen({
           icon="heart-circle"
           color="#ff3388"
           title="Harvest"
-          desc={`Hearts per pickup: ${1 + upgs.harvestLevel} → ${2 + upgs.harvestLevel}${harvestMaxed ? " (MAX)" : ""}`}
+          desc={`Hearts per pickup: ${1 + upgs.harvestLevel}× → ${2 + upgs.harvestLevel}×  (max 2×)`}
           level={upgs.harvestLevel}
           cost={harvestCost(upgs.harvestLevel)}
           canAfford={canAfford(harvestCost(upgs.harvestLevel)) && !harvestMaxed}
