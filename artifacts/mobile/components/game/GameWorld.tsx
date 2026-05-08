@@ -27,6 +27,8 @@ export interface HudState {
   ultReady:        boolean;
   ultActive:       boolean;
   ultTimer:        number;
+  comboCount:      number;
+  comboMult:       number;
 }
 
 export interface JoystickState {
@@ -64,6 +66,7 @@ const INITIAL_HUD: HudState = {
   wave: 1, phase: "playing", gremlinsLeft: 8, gremlinsTotal: 8,
   magnetActive: false, magnetTimer: 0, gatlingCharge: 0,
   ultCharge: 0, ultMax: 20, ultReady: false, ultActive: false, ultTimer: 0,
+  comboCount: 0, comboMult: 1,
 };
 
 const INITIAL_UPGRADES: Upgrades = {

@@ -31,9 +31,8 @@ const CLASSES: ClassInfo[] = [
     traits: [
       "Moderate damage & fire rate",
       "Upgrades: Attack Speed, Power, Harvest",
-      "Attack speed caps at 0.1s fire rate",
       "Kill gremlins to charge a LASER ULTIMATE",
-      "Max attack speed unlocks Bullet Size",
+      "Laser deals 10 DPS to every gremlin for 5s",
     ],
   },
   {
@@ -44,10 +43,9 @@ const CLASSES: ClassInfo[] = [
     icon: "reload",
     traits: [
       "Tiny bullets, 5 hits to kill",
-      "Fire rate ramps up while targeting",
-      "Loses speed if no target for 1 second",
+      "Fire rate ramps up the longer you target",
+      "Loses spin if no target for 1 second",
       "30% spin retained between waves",
-      "Max charge speed unlocks Damage boost",
     ],
   },
   {
@@ -57,11 +55,10 @@ const CLASSES: ClassInfo[] = [
     color: "#00ddaa",
     icon: "eye",
     traits: [
-      "Massive damage, sees entire arena",
-      "Slow fire rate (upgradeable via overflow)",
-      "Giant fast laser beam bullets",
+      "Massive damage, sees the entire arena",
+      "Fixed fire rate, one shot per 1.8 seconds",
+      "Giant laser beam bullets",
       "Upgrades: Bullet Size, Bullet Speed",
-      "Max both unlocks Attack Speed",
     ],
   },
   {

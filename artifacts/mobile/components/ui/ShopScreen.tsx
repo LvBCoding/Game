@@ -13,12 +13,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { PlayerClass, Upgrades } from "@/components/game/GameWorld";
 
 // ─── Shared constants (must match GameScene) ─────────────────────────────────
-const MAX_HARVEST_LEVEL      = 5;
-const MAX_ATTACK_LEVEL       = 5;
-const MAX_COOLDOWN_LEVEL     = 5;
-const MAX_BULLET_SIZE_LEVEL  = 5;
-const MAX_BULLET_SPEED_LEVEL = 5;
-const MAX_SPREAD_LEVEL       = 5;
+const MAX_HARVEST_LEVEL = 5;
 
 // ─── Wave preview helpers (must match GameScene) ──────────────────────────────
 function nextGremlins(w: number)     { return 8 + (w - 1) * 5; }
@@ -65,19 +60,18 @@ export function ShopScreen({
 
   const buy = (type: BuyType) => {
     const cost =
-      type === "attack"      ? attackCost(upgs.attackLevel)
-      : type === "damage"    ? damageCost(upgs.damageLevel)
-      : type === "harvest"   ? harvestCost(upgs.harvestLevel)
-      : type === "cooldown"  ? cooldownCost(upgs.cooldownLevel)
+      type === "attack"        ? attackCost(upgs.attackLevel)
+      : type === "damage"      ? damageCost(upgs.damageLevel)
+      : type === "harvest"     ? harvestCost(upgs.harvestLevel)
+      : type === "cooldown"    ? cooldownCost(upgs.cooldownLevel)
       : type === "bulletSize"  ? bulletSizeCost(upgs.bulletSizeLevel)
       : type === "bulletSpeed" ? bulletSpeedCost(upgs.bulletSpeedLevel)
-      : type === "spread"    ? spreadCost(upgs.spreadLevel)
+      : type === "spread"      ? spreadCost(upgs.spreadLevel)
       : healCost(upgs.healCount);
 
     if (hearts < cost) return;
     if (type === "heal" && (healUsed || giantHp >= 100)) return;
     if (type === "harvest" && upgs.harvestLevel >= MAX_HARVEST_LEVEL) return;
-    if (type === "spread"  && upgs.spreadLevel  >= MAX_SPREAD_LEVEL) return;
 
     setHearts(h => h - cost);
 
@@ -102,12 +96,6 @@ export function ShopScreen({
   const canAfford = (cost: number) => hearts >= cost;
   const harvestMaxed = upgs.harvestLevel >= MAX_HARVEST_LEVEL;
 
-  // ── Overflow unlock conditions ────────────────────────────────────────────
-  const classicAtkMaxed        = upgs.attackLevel >= MAX_ATTACK_LEVEL;
-  const gatlingOverflow         = upgs.cooldownLevel >= MAX_COOLDOWN_LEVEL;
-  const sniperOverflow          = upgs.bulletSizeLevel >= MAX_BULLET_SIZE_LEVEL && upgs.bulletSpeedLevel >= MAX_BULLET_SPEED_LEVEL;
-  const shotgunnerOverflow      = upgs.spreadLevel >= MAX_SPREAD_LEVEL;
-
   const classLabel =
     playerClass === "classic"    ? "Heartbreaker"
     : playerClass === "gatling"  ? "Gatling Gunner"
@@ -121,11 +109,11 @@ export function ShopScreen({
     : "#cc44ff";
 
   // ── Wave preview stats ────────────────────────────────────────────────────
-  const nGremlins  = nextGremlins(nextWave);
-  const nHp        = nextGremlinHp(nextWave);
-  const nSpawn     = nextSpawnInterval(nextWave);
-  const nSpeed     = nextGremlinSpeed(nextWave);
-  const diffColor  = nextWave <= 5 ? "#44ff88" : nextWave <= 10 ? "#ffaa00" : "#ff4444";
+  const nGremlins = nextGremlins(nextWave);
+  const nHp       = nextGremlinHp(nextWave);
+  const nSpawn    = nextSpawnInterval(nextWave);
+  const nSpeed    = nextGremlinSpeed(nextWave);
+  const diffColor = nextWave <= 5 ? "#44ff88" : nextWave <= 10 ? "#ffaa00" : "#ff4444";
 
   return (
     <View style={[styles.root, { paddingTop: topPad, paddingBottom: botPad }]}>
@@ -141,10 +129,10 @@ export function ShopScreen({
       <View style={[styles.wavePreview, { borderColor: diffColor + "44" }]}>
         <Text style={[styles.wavePreviewTitle, { color: diffColor }]}>WAVE {nextWave} INCOMING</Text>
         <View style={styles.wavePreviewRow}>
-          <PreviewStat icon="skull-outline" value={String(nGremlins)} label="gremlins" color={diffColor} />
-          <PreviewStat icon="heart-dislike" value={`${nHp} HP`}       label="each"     color={diffColor} />
-          <PreviewStat icon="speedometer"   value={nSpeed}             label="speed"    color={diffColor} />
-          <PreviewStat icon="time-outline"  value={`${nSpawn}s`}       label="spawn"    color={diffColor} />
+          <PreviewStat icon="skull-outline"  value={String(nGremlins)} label="gremlins" color={diffColor} />
+          <PreviewStat icon="heart-dislike"  value={`${nHp} HP`}       label="each"     color={diffColor} />
+          <PreviewStat icon="speedometer"    value={nSpeed}             label="speed"    color={diffColor} />
+          <PreviewStat icon="time-outline"   value={`${nSpawn}s`}       label="spawn"    color={diffColor} />
         </View>
       </View>
 
@@ -167,7 +155,6 @@ export function ShopScreen({
               level={upgs.attackLevel}
               cost={attackCost(upgs.attackLevel)}
               canAfford={canAfford(attackCost(upgs.attackLevel))}
-              maxed={classicAtkMaxed}
               onBuy={() => buy("attack")}
             />
             <UpgradeCard
@@ -180,50 +167,21 @@ export function ShopScreen({
               canAfford={canAfford(damageCost(upgs.damageLevel))}
               onBuy={() => buy("damage")}
             />
-            {classicAtkMaxed && (
-              <UpgradeCard
-                icon="expand"
-                color="#aa88ff"
-                title="⚡ Bullet Size (Overflow)"
-                desc={`Bigger bullets, wider hit radius (+0.12 per level)`}
-                level={upgs.bulletSizeLevel}
-                cost={bulletSizeCost(upgs.bulletSizeLevel)}
-                canAfford={canAfford(bulletSizeCost(upgs.bulletSizeLevel))}
-                overflow
-                onBuy={() => buy("bulletSize")}
-              />
-            )}
           </>
         )}
 
         {/* ── Gatling upgrades ── */}
         {playerClass === "gatling" && (
-          <>
-            <UpgradeCard
-              icon="speedometer"
-              color="#ff8800"
-              title="Charge Speed"
-              desc={`Spins up ${Math.round((0.25 + upgs.cooldownLevel * 0.06) * 100)}% faster per shot → ${Math.round((0.25 + (upgs.cooldownLevel + 1) * 0.06) * 100)}%`}
-              level={upgs.cooldownLevel}
-              cost={cooldownCost(upgs.cooldownLevel)}
-              canAfford={canAfford(cooldownCost(upgs.cooldownLevel))}
-              maxed={gatlingOverflow}
-              onBuy={() => buy("cooldown")}
-            />
-            {gatlingOverflow && (
-              <UpgradeCard
-                icon="flame"
-                color="#ffaa44"
-                title="⚡ Damage Boost (Overflow)"
-                desc={`+0.1 damage per bullet per level (base 0.2)`}
-                level={upgs.damageLevel}
-                cost={damageCost(upgs.damageLevel)}
-                canAfford={canAfford(damageCost(upgs.damageLevel))}
-                overflow
-                onBuy={() => buy("damage")}
-              />
-            )}
-          </>
+          <UpgradeCard
+            icon="speedometer"
+            color="#ff8800"
+            title="Charge Speed"
+            desc={`Spins up ${Math.round((0.25 + upgs.cooldownLevel * 0.06) * 100)}% faster per shot → ${Math.round((0.25 + (upgs.cooldownLevel + 1) * 0.06) * 100)}%`}
+            level={upgs.cooldownLevel}
+            cost={cooldownCost(upgs.cooldownLevel)}
+            canAfford={canAfford(cooldownCost(upgs.cooldownLevel))}
+            onBuy={() => buy("cooldown")}
+          />
         )}
 
         {/* ── Sniper upgrades ── */}
@@ -237,7 +195,6 @@ export function ShopScreen({
               level={upgs.bulletSizeLevel}
               cost={bulletSizeCost(upgs.bulletSizeLevel)}
               canAfford={canAfford(bulletSizeCost(upgs.bulletSizeLevel))}
-              maxed={upgs.bulletSizeLevel >= MAX_BULLET_SIZE_LEVEL}
               onBuy={() => buy("bulletSize")}
             />
             <UpgradeCard
@@ -248,56 +205,26 @@ export function ShopScreen({
               level={upgs.bulletSpeedLevel}
               cost={bulletSpeedCost(upgs.bulletSpeedLevel)}
               canAfford={canAfford(bulletSpeedCost(upgs.bulletSpeedLevel))}
-              maxed={upgs.bulletSpeedLevel >= MAX_BULLET_SPEED_LEVEL}
               onBuy={() => buy("bulletSpeed")}
             />
-            {sniperOverflow && (
-              <UpgradeCard
-                icon="flash"
-                color="#88ffcc"
-                title="⚡ Attack Speed (Overflow)"
-                desc={`Fire rate: ${Math.max(0.6, 1.8 - upgs.attackLevel * 0.22).toFixed(2)}s → ${Math.max(0.6, 1.8 - (upgs.attackLevel + 1) * 0.22).toFixed(2)}s`}
-                level={upgs.attackLevel}
-                cost={attackCost(upgs.attackLevel)}
-                canAfford={canAfford(attackCost(upgs.attackLevel))}
-                overflow
-                onBuy={() => buy("attack")}
-              />
-            )}
           </>
         )}
 
         {/* ── Shotgunner upgrades ── */}
         {playerClass === "shotgunner" && (
-          <>
-            <UpgradeCard
-              icon="git-branch"
-              color="#cc44ff"
-              title="Spread"
-              desc={`${3 + upgs.spreadLevel} bullets, ±${Math.round((0.35 + upgs.spreadLevel * 0.07) * 57)}° → ${3 + upgs.spreadLevel + 1} bullets, ±${Math.round((0.35 + (upgs.spreadLevel + 1) * 0.07) * 57)}°`}
-              level={upgs.spreadLevel}
-              cost={spreadCost(upgs.spreadLevel)}
-              canAfford={canAfford(spreadCost(upgs.spreadLevel))}
-              maxed={shotgunnerOverflow}
-              onBuy={() => buy("spread")}
-            />
-            {shotgunnerOverflow && (
-              <UpgradeCard
-                icon="flame"
-                color="#ff88ff"
-                title="⚡ Damage Boost (Overflow)"
-                desc={`+1.5 damage/bullet per level (base 3.0)`}
-                level={upgs.damageLevel}
-                cost={damageCost(upgs.damageLevel)}
-                canAfford={canAfford(damageCost(upgs.damageLevel))}
-                overflow
-                onBuy={() => buy("damage")}
-              />
-            )}
-          </>
+          <UpgradeCard
+            icon="git-branch"
+            color="#cc44ff"
+            title="Spread"
+            desc={`${3 + upgs.spreadLevel} bullets, ±${Math.round((0.35 + upgs.spreadLevel * 0.07) * 57)}° → ${3 + upgs.spreadLevel + 1} bullets, ±${Math.round((0.35 + (upgs.spreadLevel + 1) * 0.07) * 57)}°`}
+            level={upgs.spreadLevel}
+            cost={spreadCost(upgs.spreadLevel)}
+            canAfford={canAfford(spreadCost(upgs.spreadLevel))}
+            onBuy={() => buy("spread")}
+          />
         )}
 
-        {/* ── Harvest (all classes, capped) ── */}
+        {/* ── Harvest (all classes) ── */}
         <UpgradeCard
           icon="heart-circle"
           color="#ff3388"
@@ -374,14 +301,13 @@ interface CardProps {
   disabled?: boolean;
   disabledReason?: string;
   maxed?: boolean;
-  overflow?: boolean;
   onBuy: () => void;
 }
 
-function UpgradeCard({ icon, color, title, desc, level, cost, canAfford, disabled, disabledReason, maxed, overflow, onBuy }: CardProps) {
+function UpgradeCard({ icon, color, title, desc, level, cost, canAfford, disabled, disabledReason, maxed, onBuy }: CardProps) {
   const isDisabled = disabled || !canAfford || maxed;
   return (
-    <View style={[styles.card, overflow && styles.cardOverflow]}>
+    <View style={styles.card}>
       <View style={styles.cardLeft}>
         <View style={[styles.iconBox, { backgroundColor: color + "22", borderColor: color + "55" }]}>
           <Ionicons name={icon as any} size={28} color={color} />
@@ -398,7 +324,6 @@ function UpgradeCard({ icon, color, title, desc, level, cost, canAfford, disable
           )}
           {disabledReason && <Text style={styles.disabledReason}>{disabledReason}</Text>}
           {maxed && <Text style={styles.maxedLabel}>MAXED OUT</Text>}
-          {overflow && <Text style={[styles.overflowLabel, { color }]}>OVERFLOW UNLOCKED</Text>}
         </View>
       </View>
       <TouchableOpacity
@@ -473,10 +398,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
-  cardOverflow: {
-    borderColor: "#6600aa",
-    backgroundColor: "#1a0035",
-  },
   cardLeft: { flexDirection: "row", alignItems: "center", flex: 1, gap: 12 },
   iconBox: {
     width: 48,
@@ -497,7 +418,6 @@ const styles = StyleSheet.create({
   levelDotFilled: { backgroundColor: "#ff3366", borderColor: "#ff99cc" },
   disabledReason: { color: "#664444", fontSize: 10, fontFamily: "Inter_500Medium", marginTop: 2 },
   maxedLabel:     { color: "#ff3366", fontSize: 10, fontFamily: "Inter_700Bold", marginTop: 2, letterSpacing: 1 },
-  overflowLabel:  { fontSize: 10, fontFamily: "Inter_700Bold", marginTop: 2, letterSpacing: 1 },
 
   buyBtn: {
     flexDirection: "row",

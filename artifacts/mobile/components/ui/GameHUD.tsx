@@ -32,6 +32,7 @@ export function GameHUD({ hud, onRestart, onUltActivate, leaderboard, playerClas
     giantHeartHp, heartsCollected, score, wave, phase,
     gremlinsLeft, gremlinsTotal, magnetActive, magnetTimer,
     gatlingCharge, ultCharge, ultMax, ultReady, ultActive, ultTimer,
+    comboCount, comboMult,
   } = hud;
 
   const hpRatio      = Math.max(0, giantHeartHp) / 100;
@@ -125,6 +126,14 @@ export function GameHUD({ hud, onRestart, onUltActivate, leaderboard, playerClas
           <Text style={[styles.gaugePct, { color: ultReady ? "#ff66aa" : "#aa66cc" }]}>
             {ultActive ? `${ultTimer.toFixed(1)}s` : ultReady ? "READY" : `${ultCharge}/${ultMax}`}
           </Text>
+        </View>
+      )}
+
+      {/* Combo badge */}
+      {comboCount >= 2 && isPlaying && (
+        <View style={styles.comboBadge} pointerEvents="none">
+          <Text style={styles.comboKills}>{comboCount}× COMBO</Text>
+          <Text style={styles.comboMult}>×{comboMult.toFixed(2)} score</Text>
         </View>
       )}
 
@@ -259,6 +268,27 @@ const styles = StyleSheet.create({
   },
   gaugeFill: { height: "100%", borderRadius: 4 },
   gaugePct:  { color: "#ffcc88", fontSize: 10, fontFamily: "Inter_700Bold", minWidth: 42, textAlign: "right" },
+
+  comboBadge: {
+    position: "absolute", top: 120, left: 0, right: 0,
+    alignItems: "center", zIndex: 11,
+  },
+  comboKills: {
+    color: "#ffdd00",
+    fontSize: 22,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 2,
+    textShadowColor: "#ff8800",
+    textShadowRadius: 8,
+    textShadowOffset: { width: 0, height: 0 },
+  },
+  comboMult: {
+    color: "#ffaa44",
+    fontSize: 13,
+    fontFamily: "Inter_600SemiBold",
+    letterSpacing: 1,
+    marginTop: -2,
+  },
 
   magnetBadge: {
     position: "absolute", top: 90, right: 14,

@@ -28,6 +28,9 @@ const MAGNET_DURATION    = 3.5;
 const MAGNET_SUCTION     = 18;
 const MAGNET_DROP_CHANCE = 0.01;
 
+// Combo
+const COMBO_WINDOW = 1.5;
+
 // Classic / Heartbreaker
 const CLASSIC_PROJ_SPEED  = 28;
 const CLASSIC_BASE_FIRE   = 1.0;
@@ -35,7 +38,6 @@ const CLASSIC_MIN_FIRE    = 0.1;
 const CLASSIC_FIRE_RANGE  = 14;
 const CLASSIC_PROJ_RADIUS = 0.28;
 const MAX_HARVEST_LEVEL   = 5;
-const MAX_ATTACK_LEVEL    = 5;   // overflow threshold
 
 // Classic Ultimate
 const CLASSIC_ULT_DURATION = 5.0;
@@ -52,7 +54,6 @@ const GATLING_DAMAGE       = 0.2;
 const GATLING_NO_TGT_RESET = 1.0;
 const GATLING_EFF_DECAY    = 0.07;
 const GATLING_EFF_MIN      = 0.15;
-const MAX_COOLDOWN_LEVEL   = 5;   // overflow threshold
 
 // Sniper
 const SNIPER_BASE_FIRE        = 1.8;
@@ -60,8 +61,6 @@ const SNIPER_FIRE_RANGE       = 80;
 const SNIPER_PROJ_SPEED_BASE  = 50;
 const SNIPER_PROJ_RADIUS_BASE = 0.6;
 const SNIPER_DAMAGE           = 8;
-const MAX_BULLET_SIZE_LEVEL   = 5;  // overflow threshold
-const MAX_BULLET_SPEED_LEVEL  = 5;  // overflow threshold
 
 // Shotgunner
 const SHOTGUN_BASE_FIRE  = 1.2;
@@ -69,7 +68,6 @@ const SHOTGUN_PROJ_SPEED = 16;
 const SHOTGUN_FIRE_RANGE = 8;
 const SHOTGUN_DAMAGE     = 3.0;
 const SHOTGUN_TTL        = 0.58;
-const MAX_SPREAD_LEVEL   = 5;   // overflow threshold
 
 function gremlinsForWave(w: number)     { return 8 + (w - 1) * 5; }
 function gremlinHpForWave(w: number)    { return 1 + Math.floor(w / 5); }
@@ -113,6 +111,9 @@ interface GS {
   ultKills:  number;
   ultActive: boolean;
   ultTimer:  number;
+  // Combo
+  comboCount: number;
+  comboTimer: number;
 }
 
 function initGS(wave = 1, giantHp = GIANT_HP_MAX, hearts = 0): GS {
@@ -134,6 +135,8 @@ function initGS(wave = 1, giantHp = GIANT_HP_MAX, hearts = 0): GS {
     ultKills: 0,
     ultActive: false,
     ultTimer: 0,
+    comboCount: 0,
+    comboTimer: 100,
   };
 }
 
@@ -177,25 +180,32 @@ export function GameScene({
   const projMap    = useRef<Map<string, THREE.Mesh>>(new Map());
   const magnetMMap = useRef<Map<string, THREE.Mesh>>(new Map());
 
-  const buildHudState = (g: GS): HudState => ({
-    giantHeartHp:    g.giantHp,
-    heartsCollected: g.heartsCollected,
-    score:           g.score,
-    wave:            g.wave,
-    phase:           g.phase,
-    gremlinsLeft:    Math.max(0, g.gremlinsThisWave - g.gremlinsKilled),
-    gremlinsTotal:   g.gremlinsThisWave,
-    magnetActive:    g.magnetActive,
-    magnetTimer:     g.magnetTimer,
-    gatlingCharge:   Math.max(0, Math.min(1,
-      (GATLING_BASE_FIRE - g.gatlingFireInt) / (GATLING_BASE_FIRE - GATLING_MIN_FIRE)
-    )),
-    ultCharge: playerClass === "classic" ? g.ultKills : 0,
-    ultMax:    playerClass === "classic" ? ultThreshold(g.wave) : 1,
-    ultReady:  playerClass === "classic" && !g.ultActive && g.ultKills >= ultThreshold(g.wave),
-    ultActive: g.ultActive,
-    ultTimer:  g.ultTimer,
-  });
+  const comboMult = (count: number) => Math.min(3, 1 + Math.max(0, count - 1) * 0.25);
+
+  const buildHudState = (g: GS): HudState => {
+    const activeCombo = g.comboTimer < COMBO_WINDOW;
+    return {
+      giantHeartHp:    g.giantHp,
+      heartsCollected: g.heartsCollected,
+      score:           g.score,
+      wave:            g.wave,
+      phase:           g.phase,
+      gremlinsLeft:    Math.max(0, g.gremlinsThisWave - g.gremlinsKilled),
+      gremlinsTotal:   g.gremlinsThisWave,
+      magnetActive:    g.magnetActive,
+      magnetTimer:     g.magnetTimer,
+      gatlingCharge:   Math.max(0, Math.min(1,
+        (GATLING_BASE_FIRE - g.gatlingFireInt) / (GATLING_BASE_FIRE - GATLING_MIN_FIRE)
+      )),
+      ultCharge: playerClass === "classic" ? g.ultKills : 0,
+      ultMax:    playerClass === "classic" ? ultThreshold(g.wave) : 1,
+      ultReady:  playerClass === "classic" && !g.ultActive && g.ultKills >= ultThreshold(g.wave),
+      ultActive: g.ultActive,
+      ultTimer:  g.ultTimer,
+      comboCount: activeCombo ? g.comboCount : 0,
+      comboMult:  activeCombo ? comboMult(g.comboCount) : 1,
+    };
+  };
 
   useFrame((state, rawDelta) => {
     const g  = gs.current;
@@ -205,6 +215,9 @@ export function GameScene({
     let changed = false;
     const uid = () => String(++g.uid);
     const upg = upgradesRef.current;
+
+    // ── Combo timer ───────────────────────────────────────────────────────────
+    g.comboTimer += dt;
 
     // ── Gameover ──────────────────────────────────────────────────────────────
     if (g.phase === "gameover") {
@@ -256,6 +269,7 @@ export function GameScene({
       g.gatlingNoTgtT  = 0;
       g.gatlingRampEff = 1.0;
       g.ultActive = false; g.ultTimer = 0;
+      g.comboCount = 0; g.comboTimer = 100;
       if (ultVisualRef.current) { ultVisualRef.current = false; setUltVisual(false); }
       setGremlinIds([]); setProjIds([]); setMagnetIds([]);
       changed = true;
@@ -429,10 +443,9 @@ export function GameScene({
       }
 
     } else if (playerClass === "sniper") {
-      const sniperFireInt = Math.max(0.6, SNIPER_BASE_FIRE - upg.attackLevel * 0.22);
       g.fireT -= dt;
       if (g.fireT <= 0) {
-        g.fireT = sniperFireInt;
+        g.fireT = SNIPER_BASE_FIRE;
         let nearest: GremlinData | null = null, nearestDist = Infinity;
         for (const gr of g.gremlins) {
           const d = g.player.pos.distanceTo(gr.pos);
@@ -500,7 +513,10 @@ export function GameScene({
           const deadPos = g.gremlins[gi].pos.clone();
           g.gremlins.splice(gi, 1);
           g.gremlinsKilled++;
-          g.score += 10;
+          // Ult kills also charge combo
+          if (g.comboTimer < COMBO_WINDOW) { g.comboCount++; } else { g.comboCount = 1; }
+          g.comboTimer = 0;
+          g.score += Math.round(10 * comboMult(g.comboCount));
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
           if (Math.random() < MAGNET_DROP_CHANCE) g.magnets.push({ id: uid(), pos: deadPos });
         }
@@ -510,9 +526,9 @@ export function GameScene({
 
     // ── Projectiles + collision ───────────────────────────────────────────────
     const projDmg =
-      playerClass === "gatling"    ? (GATLING_DAMAGE + upg.damageLevel * 0.1)
-      : playerClass === "sniper"   ? SNIPER_DAMAGE
-      : playerClass === "shotgunner" ? (SHOTGUN_DAMAGE + upg.damageLevel * 1.5)
+      playerClass === "gatling"      ? GATLING_DAMAGE
+      : playerClass === "sniper"     ? SNIPER_DAMAGE
+      : playerClass === "shotgunner" ? SHOTGUN_DAMAGE
       : (1 + upg.damageLevel);
 
     const projSpeed =
@@ -537,8 +553,6 @@ export function GameScene({
       for (let gi = g.gremlins.length - 1; gi >= 0; gi--) {
         const hitR = playerClass === "sniper"
           ? (SNIPER_PROJ_RADIUS_BASE + upg.bulletSizeLevel * 0.25) + 0.3
-          : playerClass === "classic" && upg.bulletSizeLevel > 0
-          ? GREMLIN_HIT_R + upg.bulletSizeLevel * 0.12
           : GREMLIN_HIT_R;
         if (p.pos.distanceTo(g.gremlins[gi].pos) < hitR) {
           g.gremlins[gi].hp -= projDmg;
@@ -546,7 +560,12 @@ export function GameScene({
             const deadPos = g.gremlins[gi].pos.clone();
             g.gremlins.splice(gi, 1);
             g.gremlinsKilled++;
-            g.score += 10;
+            // Combo
+            if (g.comboTimer < COMBO_WINDOW) { g.comboCount++; } else { g.comboCount = 1; }
+            g.comboTimer = 0;
+            const mult = comboMult(g.comboCount);
+            g.score += Math.round(10 * mult);
+            // Classic ultimate charge
             if (playerClass === "classic" && !g.ultActive) g.ultKills++;
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
             if (Math.random() < MAGNET_DROP_CHANCE) g.magnets.push({ id: uid(), pos: deadPos });
@@ -609,7 +628,7 @@ export function GameScene({
     playerClass === "gatling"      ? GATLING_PROJ_RADIUS
     : playerClass === "sniper"     ? (SNIPER_PROJ_RADIUS_BASE + upg.bulletSizeLevel * 0.25)
     : playerClass === "shotgunner" ? 0.22
-    : (CLASSIC_PROJ_RADIUS + upg.bulletSizeLevel * 0.08);
+    : CLASSIC_PROJ_RADIUS;
 
   const projColor =
     playerClass === "gatling"      ? "#ffcc00"
