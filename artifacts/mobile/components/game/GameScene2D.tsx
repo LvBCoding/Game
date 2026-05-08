@@ -98,9 +98,10 @@ interface GS {
   gatlingFireInt:         number;
   gatlingNoTgtT:          number;
   gatlingWaveClearTarget: number;
-  ultKills:  number;
-  ultActive: boolean;
-  ultTimer:  number;
+  ultKills:       number;
+  ultActive:      boolean;
+  ultTimer:       number;
+  ultLaserAngle:  number;
   comboCount: number;
   comboTimer: number;
 }
@@ -123,6 +124,7 @@ function initGS(wave = 1, giantHp = GIANT_HP_MAX, hearts = 0): GS {
     ultKills: 0,
     ultActive: false,
     ultTimer: 0,
+    ultLaserAngle: 0,
     comboCount: 0,
     comboTimer: 100,
   };
@@ -506,19 +508,32 @@ function drawProjectile(ctx: CanvasRenderingContext2D, sx: number, sy: number, p
   ctx.fillRect(cx - Math.max(1, Math.round(r * 0.4)), cy - Math.max(1, Math.round(r * 0.4)), Math.max(1, Math.round(r * 0.5)), Math.max(1, Math.round(r * 0.5)));
 }
 
-// Draw laser beam (fires in the +y direction of local space, which matches world +z after rotation)
-function drawLaser(ctx: CanvasRenderingContext2D, px: number, py: number, facing: number, scale: number, W: number, H: number, t: number) {
+// Draw laser beam — two-sided spinning beam.
+// Rotation: ctx.rotate(-angle) so that world-space direction (sin(angle), cos(angle))
+// maps correctly to screen-space (+x right, +y down = world +z down).
+function drawLaser(ctx: CanvasRenderingContext2D, px: number, py: number, angle: number, scale: number, W: number, H: number, t: number) {
   ctx.save();
   ctx.translate(px, py);
-  ctx.rotate(facing);
+  ctx.rotate(-angle);
   const beamW = Math.round(LASER_HIT_WIDTH * scale);
-  const beamL = Math.round(ARENA * 2 * scale);
-  ctx.globalAlpha = 0.7 + Math.sin(t * 30) * 0.15;
+  const beamL = Math.round(ARENA * 2.5 * scale); // extend past arena edge
+  const flicker = 0.75 + Math.sin(t * 40) * 0.15;
+
+  // Outer glow
+  ctx.globalAlpha = flicker * 0.35;
   ctx.fillStyle = "#ff0066";
-  ctx.fillRect(-Math.round(beamW / 2), 0, beamW, beamL);
-  ctx.globalAlpha = 0.4;
-  ctx.fillStyle = "#ff99cc";
-  ctx.fillRect(-Math.round(beamW / 4), 0, Math.round(beamW / 2), beamL);
+  ctx.fillRect(-Math.round(beamW * 1.5), -beamL, Math.round(beamW * 3), beamL * 2);
+
+  // Main beam (both directions)
+  ctx.globalAlpha = flicker;
+  ctx.fillStyle = "#ff0066";
+  ctx.fillRect(-Math.round(beamW / 2), -beamL, beamW, beamL * 2);
+
+  // Core
+  ctx.globalAlpha = flicker * 0.8;
+  ctx.fillStyle = "#ffaadd";
+  ctx.fillRect(-Math.round(beamW / 4), -beamL, Math.round(beamW / 2), beamL * 2);
+
   ctx.globalAlpha = 1;
   ctx.restore();
 }
@@ -652,7 +667,7 @@ export function GameScene2D({
         g.magnetActive = false; g.magnetTimer = 0;
         g.gatlingFireInt = g.gatlingWaveClearTarget;
         g.gatlingNoTgtT  = 0;
-        g.ultActive = false; g.ultTimer = 0;
+        g.ultActive = false; g.ultTimer = 0; g.ultLaserAngle = 0;
         g.comboCount = 0; g.comboTimer = 100;
       }
 
@@ -856,15 +871,19 @@ export function GameScene2D({
           if (g.ultTimer <= 0) {
             g.ultActive = false;
             g.ultTimer  = 0;
+            g.ultLaserAngle = 0;
           } else {
-            const lDx = Math.sin(g.player.facing);
-            const lDz = Math.cos(g.player.facing);
+            // Spin continuously — 2 full rotations over 3 s
+            g.ultLaserAngle += dt * (Math.PI * 2 * (2 / CLASSIC_ULT_DURATION));
+            const lDx = Math.sin(g.ultLaserAngle);
+            const lDz = Math.cos(g.ultLaserAngle);
+            // Laser hits in both directions (360° sweep each half-rotation)
             for (let gi = g.gremlins.length - 1; gi >= 0; gi--) {
               const gr  = g.gremlins[gi];
               const dx  = gr.pos.x - g.player.pos.x;
               const dz  = gr.pos.z - g.player.pos.z;
               const dot = dx * lDx + dz * lDz;
-              if (dot < 0) continue;
+              // hit both forward AND backward beam (two-sided laser)
               const perpSq = dx * dx + dz * dz - dot * dot;
               if (perpSq < LASER_HIT_WIDTH * LASER_HIT_WIDTH) {
                 g.gremlins[gi].hp -= CLASSIC_ULT_DPS * dt;
@@ -907,7 +926,9 @@ export function GameScene2D({
             g.projs.splice(pi, 1); continue;
           }
 
-          if (p.pos.x * p.pos.x + p.pos.z * p.pos.z < GIANT_PROJ_BLOCK_R * GIANT_PROJ_BLOCK_R) {
+          // Sniper shoots through the heart; all other classes are blocked
+          if (playerClass !== "sniper" &&
+              p.pos.x * p.pos.x + p.pos.z * p.pos.z < GIANT_PROJ_BLOCK_R * GIANT_PROJ_BLOCK_R) {
             g.projs.splice(pi, 1); continue;
           }
 
@@ -1020,7 +1041,7 @@ export function GameScene2D({
 
       // Laser beam (classic ultimate)
       if (playerClass === "classic" && gs.current.ultActive && gs.current.ultTimer > 0) {
-        drawLaser(ctx, toSX(gs.current.player.pos.x), toSY(gs.current.player.pos.z), gs.current.player.facing, scale, W, H, t);
+        drawLaser(ctx, toSX(gs.current.player.pos.x), toSY(gs.current.player.pos.z), gs.current.ultLaserAngle, scale, W, H, t);
       }
 
       // Player (drawn last so it's on top)
