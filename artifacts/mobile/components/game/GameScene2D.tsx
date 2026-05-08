@@ -134,6 +134,15 @@ const _dir  = new THREE.Vector3();
 const _mag  = new THREE.Vector3();
 const _ZERO = new THREE.Vector3(0, 0, 0);
 
+// Swept collision: minimum distance from segment A→B to point P (2D, using x/z)
+function segmentPointDist(ax: number, az: number, bx: number, bz: number, px: number, pz: number): number {
+  const dx = bx - ax, dz = bz - az;
+  const lenSq = dx * dx + dz * dz;
+  if (lenSq < 0.00001) return Math.hypot(px - ax, pz - az);
+  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (pz - az) * dz) / lenSq));
+  return Math.hypot(px - (ax + t * dx), pz - (az + t * dz));
+}
+
 // ─── Props ────────────────────────────────────────────────────────────────────
 interface Props {
   joystickRef:    React.MutableRefObject<JoystickState>;
@@ -887,6 +896,9 @@ export function GameScene2D({
 
         for (let pi = g.projs.length - 1; pi >= 0; pi--) {
           const p = g.projs[pi];
+
+          // Save position before moving (for swept collision)
+          const prevX = p.pos.x, prevZ = p.pos.z;
           p.pos.addScaledVector(p.dir, pSpd);
 
           if (p.ttl !== undefined) {
@@ -902,14 +914,22 @@ export function GameScene2D({
             g.projs.splice(pi, 1); continue;
           }
 
+          // Hit radius = gremlin body radius + projectile radius (consistent for all classes)
+          const projR =
+            playerClass === "sniper"     ? (SNIPER_PROJ_RADIUS_BASE + upg.bulletSizeLevel * 0.25)
+            : playerClass === "shotgunner" ? 0.22
+            : playerClass === "gatling"    ? GATLING_PROJ_RADIUS
+            : CLASSIC_PROJ_RADIUS;
+          const hitR = GREMLIN_HIT_R + projR;
+
           let hit = false;
           for (let gi = g.gremlins.length - 1; gi >= 0; gi--) {
-            const hitR = playerClass === "sniper"
-              ? (SNIPER_PROJ_RADIUS_BASE + upg.bulletSizeLevel * 0.25) + 0.3
-              : GREMLIN_HIT_R;
-            if (p.pos.distanceTo(g.gremlins[gi].pos) < hitR) {
-              g.gremlins[gi].hp -= projDmg;
-              if (g.gremlins[gi].hp <= 0) {
+            const gr = g.gremlins[gi];
+            // Swept check: min distance from bullet path segment to gremlin center
+            const dist = segmentPointDist(prevX, prevZ, p.pos.x, p.pos.z, gr.pos.x, gr.pos.z);
+            if (dist < hitR) {
+              gr.hp -= projDmg;
+              if (gr.hp <= 0) {
                 killGremlin(g, gi, uid);
                 if (playerClass === "classic") g.ultKills++;
               }
