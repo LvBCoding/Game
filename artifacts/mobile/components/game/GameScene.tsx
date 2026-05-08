@@ -13,38 +13,40 @@ import type {
 } from "./GameWorld";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const ARENA           = 24;
-const PLAYER_SPEED    = 11;
-const PICKUP_R        = 2.2;
-const MAGNET_PICKUP_R = 1.8;
-const GREMLIN_HIT_R   = 1.3;
-const GIANT_ATTACK_R  = 2.9;
-const GIANT_HP_MAX    = 100;
-const GREMLIN_DMG     = 20;
-const HEART_INTERVAL  = 1.8;
-const MAX_GREMLINS    = 18;
-const MAX_HEARTS      = 14;
+const ARENA              = 24;
+const PLAYER_SPEED       = 11;
+const PICKUP_R           = 2.2;
+const MAGNET_PICKUP_R    = 1.8;
+const GREMLIN_HIT_R      = 1.3;
+const GIANT_ATTACK_R     = 2.9;
+const GIANT_PROJ_BLOCK_R = 2.8;   // projectiles die inside this radius
+const GIANT_HP_MAX       = 100;
+const GREMLIN_DMG        = 20;
+const MAX_GREMLINS       = 30;
+const MAX_HEARTS         = 30;
 const MAGNET_DURATION    = 3.5;
 const MAGNET_SUCTION     = 18;
-const MAGNET_DROP_CHANCE = 0.01;
+const MAGNET_DROP_CHANCE = 0.04;
 
 // Combo
 const COMBO_WINDOW = 1.5;
 
 // Classic / Heartbreaker
 const CLASSIC_PROJ_SPEED  = 28;
-const CLASSIC_BASE_FIRE   = 1.0;
+const CLASSIC_BASE_FIRE   = 1.5;  // slightly faster than original 1.8
 const CLASSIC_MIN_FIRE    = 0.1;
 const CLASSIC_FIRE_RANGE  = 14;
 const CLASSIC_PROJ_RADIUS = 0.28;
+const CLASSIC_BASE_DMG    = 0.5;  // 2 hits to kill wave-1 gremlins
 const MAX_HARVEST_LEVEL   = 5;
 
 // Classic Ultimate
 const CLASSIC_ULT_DURATION = 5.0;
-const CLASSIC_ULT_DPS      = 10;
-function ultThreshold(wave: number) { return 20 + Math.floor((wave - 1) / 5) * 5; }
+const CLASSIC_ULT_DPS      = 12;
+const LASER_HIT_WIDTH      = 1.5;
+function ultThreshold(wave: number) { return 8 + Math.floor((wave - 1) / 3) * 4; }
 
-// Gatling
+// Gatling (UNCHANGED)
 const GATLING_BASE_FIRE    = 1.5;
 const GATLING_MIN_FIRE     = 0.01;
 const GATLING_PROJ_SPEED   = 40;
@@ -55,23 +57,24 @@ const GATLING_NO_TGT_RESET = 1.0;
 const GATLING_EFF_DECAY    = 0.07;
 const GATLING_EFF_MIN      = 0.15;
 
-// Sniper
-const SNIPER_BASE_FIRE        = 1.8;
+// Sniper (slower)
+const SNIPER_BASE_FIRE        = 2.5;
 const SNIPER_FIRE_RANGE       = 80;
 const SNIPER_PROJ_SPEED_BASE  = 50;
 const SNIPER_PROJ_RADIUS_BASE = 0.6;
 const SNIPER_DAMAGE           = 8;
 
-// Shotgunner
-const SHOTGUN_BASE_FIRE  = 1.2;
+// Shotgunner (slower)
+const SHOTGUN_BASE_FIRE  = 2.0;
 const SHOTGUN_PROJ_SPEED = 16;
 const SHOTGUN_FIRE_RANGE = 8;
 const SHOTGUN_DAMAGE     = 3.0;
 const SHOTGUN_TTL        = 0.58;
 
-function gremlinsForWave(w: number)     { return 8 + (w - 1) * 5; }
+// More gremlins — wave 1: 15, wave 2: 22, wave 3: 29 …
+function gremlinsForWave(w: number)     { return 15 + (w - 1) * 7; }
 function gremlinHpForWave(w: number)    { return 1 + Math.floor(w / 5); }
-function spawnIntervalForWave(w: number){ return Math.max(0.8, 2.4 - (w - 1) * 0.2); }
+function spawnIntervalForWave(w: number){ return Math.max(0.35, 1.6 - (w - 1) * 0.12); }
 function gremlinSpeedForWave(w: number) { return 1.4 + (w - 1) * 0.28; }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -93,7 +96,6 @@ interface GS {
   phase:            "playing" | "waveclear" | "gameover";
   frameN:           number;
   uid:              number;
-  heartT:           number;
   gremlinT:         number;
   fireT:            number;
   gremlinsThisWave: number;
@@ -123,7 +125,7 @@ function initGS(wave = 1, giantHp = GIANT_HP_MAX, hearts = 0): GS {
     giantHp, heartsCollected: hearts, score: 0, wave,
     phase: "playing",
     frameN: 0, uid: 0,
-    heartT: 1.2, gremlinT: 2.0, fireT: 1.0,
+    gremlinT: 2.0, fireT: 1.0,
     gremlinsThisWave: gremlinsForWave(wave),
     gremlinsSpawned: 0, gremlinsKilled: 0,
     waveClearCalled: false,
@@ -143,6 +145,7 @@ function initGS(wave = 1, giantHp = GIANT_HP_MAX, hearts = 0): GS {
 const _dir    = new THREE.Vector3();
 const _mag    = new THREE.Vector3();
 const _camTgt = new THREE.Vector3();
+const _ZERO   = new THREE.Vector3(0, 0, 0);
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 interface Props {
@@ -175,6 +178,7 @@ export function GameScene({
 
   const playerMesh = useRef<THREE.Mesh>(null);
   const giantMesh  = useRef<THREE.Mesh>(null);
+  const laserRef   = useRef<THREE.Mesh>(null);
   const gremlinMap = useRef<Map<string, THREE.Group>>(new Map());
   const heartMap   = useRef<Map<string, THREE.Mesh>>(new Map());
   const projMap    = useRef<Map<string, THREE.Mesh>>(new Map());
@@ -207,6 +211,25 @@ export function GameScene({
     };
   };
 
+  // Helper: kill a gremlin at index, drop heart + optional magnet, update combo
+  const killGremlin = (g: GS, gi: number, uid: () => string) => {
+    const deadPos = g.gremlins[gi].pos.clone();
+    g.gremlins.splice(gi, 1);
+    g.gremlinsKilled++;
+    if (g.comboTimer < COMBO_WINDOW) { g.comboCount++; } else { g.comboCount = 1; }
+    g.comboTimer = 0;
+    g.score += Math.round(10 * comboMult(g.comboCount));
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    // Heart drop
+    if (g.hearts.length < MAX_HEARTS) {
+      g.hearts.push({ id: uid(), pos: deadPos.clone(), bob: Math.random() * Math.PI * 2 });
+    }
+    // Magnet drop
+    if (Math.random() < MAGNET_DROP_CHANCE) {
+      g.magnets.push({ id: uid(), pos: deadPos.clone() });
+    }
+  };
+
   useFrame((state, rawDelta) => {
     const g  = gs.current;
     const dt = Math.min(rawDelta, 0.1);
@@ -224,14 +247,12 @@ export function GameScene({
       if (playerClass === "sniper") {
         _camTgt.set(0, 75, 0.001);
         camera.position.lerp(_camTgt, Math.min(dt * 3, 1));
-        camera.up.set(0, 0, -1);
-        camera.lookAt(0, 0, 0);
       } else {
         _camTgt.set(g.player.pos.x, 32, g.player.pos.z);
         camera.position.lerp(_camTgt, Math.min(dt * 5, 1));
-        camera.up.set(0, 0, -1);
-        camera.lookAt(g.player.pos.x, 0, g.player.pos.z);
       }
+      camera.up.set(0, 0, -1);
+      camera.lookAt(playerClass === "sniper" ? 0 : g.player.pos.x, 0, playerClass === "sniper" ? 0 : g.player.pos.z);
       onHudUpdate(buildHudState(g));
       return;
     }
@@ -260,7 +281,6 @@ export function GameScene({
       g.gremlinsKilled       = 0;
       g.waveClearCalled      = false;
       g.phase                = "playing";
-      g.heartT               = 1.2;
       g.gremlinT             = 2.0;
       g.fireT                = 1.0;
       g.gremlins = []; g.projs = []; g.magnets = [];
@@ -270,6 +290,7 @@ export function GameScene({
       g.gatlingRampEff = 1.0;
       g.ultActive = false; g.ultTimer = 0;
       g.comboCount = 0; g.comboTimer = 100;
+      if (laserRef.current) laserRef.current.visible = false;
       if (ultVisualRef.current) { ultVisualRef.current = false; setUltVisual(false); }
       setGremlinIds([]); setProjIds([]); setMagnetIds([]);
       changed = true;
@@ -302,20 +323,6 @@ export function GameScene({
       return;
     }
 
-    // ── Spawn hearts ──────────────────────────────────────────────────────────
-    g.heartT -= dt;
-    if (g.heartT <= 0 && g.hearts.length < MAX_HEARTS) {
-      g.heartT = HEART_INTERVAL;
-      const angle = Math.random() * Math.PI * 2;
-      const r = 4 + Math.random() * 15;
-      g.hearts.push({
-        id: uid(),
-        pos: new THREE.Vector3(Math.cos(angle) * r, 0, Math.sin(angle) * r),
-        bob: Math.random() * Math.PI * 2,
-      });
-      changed = true;
-    }
-
     // ── Spawn gremlins ────────────────────────────────────────────────────────
     g.gremlinT -= dt;
     if (g.gremlinT <= 0 && g.gremlins.length < MAX_GREMLINS && g.gremlinsSpawned < g.gremlinsThisWave) {
@@ -344,11 +351,11 @@ export function GameScene({
     }
 
     // ── Block player from inside the Giant Heart ──────────────────────────────
-    const _centerDist = Math.sqrt(g.player.pos.x * g.player.pos.x + g.player.pos.z * g.player.pos.z);
-    if (_centerDist < 3.5 && _centerDist > 0.001) {
-      const _pushScale = 3.5 / _centerDist;
-      g.player.pos.x *= _pushScale;
-      g.player.pos.z *= _pushScale;
+    const _pDist = Math.sqrt(g.player.pos.x * g.player.pos.x + g.player.pos.z * g.player.pos.z);
+    if (_pDist < 3.5 && _pDist > 0.001) {
+      const _s = 3.5 / _pDist;
+      g.player.pos.x *= _s;
+      g.player.pos.z *= _s;
     }
 
     // ── Magnet + heart pickups ────────────────────────────────────────────────
@@ -393,7 +400,7 @@ export function GameScene({
     }
 
     // ── Auto-fire (per class) ─────────────────────────────────────────────────
-    if (playerClass === "classic") {
+    if (playerClass === "classic" && !g.ultActive) {
       const fireInt = Math.max(CLASSIC_MIN_FIRE, CLASSIC_BASE_FIRE - upg.attackLevel * 0.18);
       g.fireT -= dt;
       if (g.fireT <= 0) {
@@ -500,28 +507,50 @@ export function GameScene({
       }
     }
 
-    // ── Classic Ultimate laser ────────────────────────────────────────────────
+    // ── Classic Ultimate directional laser ────────────────────────────────────
     if (playerClass === "classic" && g.ultActive) {
       g.ultTimer -= dt;
-      if (g.ultTimer <= 0) {
-        g.ultActive = false; g.ultTimer = 0;
-        if (ultVisualRef.current) { ultVisualRef.current = false; setUltVisual(false); }
+      const lDx = Math.sin(g.player.facing);
+      const lDz = Math.cos(g.player.facing);
+
+      if (laserRef.current) {
+        if (g.ultTimer > 0) {
+          laserRef.current.visible = true;
+          laserRef.current.position.set(
+            g.player.pos.x + lDx * ARENA,
+            0.8,
+            g.player.pos.z + lDz * ARENA,
+          );
+          laserRef.current.rotation.y = g.player.facing;
+        } else {
+          laserRef.current.visible = false;
+        }
       }
-      for (let gi = g.gremlins.length - 1; gi >= 0; gi--) {
-        g.gremlins[gi].hp -= CLASSIC_ULT_DPS * dt;
-        if (g.gremlins[gi].hp <= 0) {
-          const deadPos = g.gremlins[gi].pos.clone();
-          g.gremlins.splice(gi, 1);
-          g.gremlinsKilled++;
-          // Ult kills also charge combo
-          if (g.comboTimer < COMBO_WINDOW) { g.comboCount++; } else { g.comboCount = 1; }
-          g.comboTimer = 0;
-          g.score += Math.round(10 * comboMult(g.comboCount));
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-          if (Math.random() < MAGNET_DROP_CHANCE) g.magnets.push({ id: uid(), pos: deadPos });
+
+      if (g.ultTimer <= 0) {
+        g.ultActive = false;
+        g.ultTimer  = 0;
+        if (ultVisualRef.current) { ultVisualRef.current = false; setUltVisual(false); }
+      } else {
+        for (let gi = g.gremlins.length - 1; gi >= 0; gi--) {
+          const gr    = g.gremlins[gi];
+          const dx    = gr.pos.x - g.player.pos.x;
+          const dz    = gr.pos.z - g.player.pos.z;
+          const dot   = dx * lDx + dz * lDz;
+          if (dot < 0) continue;
+          const perpSq = dx * dx + dz * dz - dot * dot;
+          if (perpSq < LASER_HIT_WIDTH * LASER_HIT_WIDTH) {
+            g.gremlins[gi].hp -= CLASSIC_ULT_DPS * dt;
+            if (g.gremlins[gi].hp <= 0) {
+              killGremlin(g, gi, uid);
+              changed = true;
+            }
+          }
         }
       }
       changed = true;
+    } else if (laserRef.current && !g.ultActive) {
+      laserRef.current.visible = false;
     }
 
     // ── Projectiles + collision ───────────────────────────────────────────────
@@ -529,7 +558,7 @@ export function GameScene({
       playerClass === "gatling"      ? GATLING_DAMAGE
       : playerClass === "sniper"     ? SNIPER_DAMAGE
       : playerClass === "shotgunner" ? SHOTGUN_DAMAGE
-      : (1 + upg.damageLevel);
+      : (CLASSIC_BASE_DMG + upg.damageLevel * 0.5);
 
     const projSpeed =
       playerClass === "gatling"      ? GATLING_PROJ_SPEED
@@ -542,13 +571,24 @@ export function GameScene({
     for (let pi = g.projs.length - 1; pi >= 0; pi--) {
       const p = g.projs[pi];
       p.pos.addScaledVector(p.dir, pSpd);
+
+      // TTL (shotgunner range limit)
       if (p.ttl !== undefined) {
         p.ttl -= dt;
         if (p.ttl <= 0) { g.projs.splice(pi, 1); changed = true; continue; }
       }
+
+      // Out of bounds
       if (Math.abs(p.pos.x) > ARENA + 8 || Math.abs(p.pos.z) > ARENA + 8) {
         g.projs.splice(pi, 1); changed = true; continue;
       }
+
+      // Blocked by giant heart
+      if (p.pos.x * p.pos.x + p.pos.z * p.pos.z < GIANT_PROJ_BLOCK_R * GIANT_PROJ_BLOCK_R) {
+        g.projs.splice(pi, 1); changed = true; continue;
+      }
+
+      // Gremlin hit detection
       let hit = false;
       for (let gi = g.gremlins.length - 1; gi >= 0; gi--) {
         const hitR = playerClass === "sniper"
@@ -557,18 +597,8 @@ export function GameScene({
         if (p.pos.distanceTo(g.gremlins[gi].pos) < hitR) {
           g.gremlins[gi].hp -= projDmg;
           if (g.gremlins[gi].hp <= 0) {
-            const deadPos = g.gremlins[gi].pos.clone();
-            g.gremlins.splice(gi, 1);
-            g.gremlinsKilled++;
-            // Combo
-            if (g.comboTimer < COMBO_WINDOW) { g.comboCount++; } else { g.comboCount = 1; }
-            g.comboTimer = 0;
-            const mult = comboMult(g.comboCount);
-            g.score += Math.round(10 * mult);
-            // Classic ultimate charge
-            if (playerClass === "classic" && !g.ultActive) g.ultKills++;
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-            if (Math.random() < MAGNET_DROP_CHANCE) g.magnets.push({ id: uid(), pos: deadPos });
+            killGremlin(g, gi, uid);
+            if (playerClass === "classic") g.ultKills++;
           }
           hit = true; break;
         }
@@ -654,7 +684,7 @@ export function GameScene({
       <directionalLight position={[10, 20, 10]} intensity={1.0} />
       <pointLight position={[0, 6, 0]} color="#ff3366" intensity={6} distance={20} decay={2} />
       {ultVisual && (
-        <pointLight position={[0, 10, 0]} color="#ff0066" intensity={50} distance={60} decay={1.5} />
+        <pointLight position={[0, 12, 0]} color="#ff0066" intensity={60} distance={80} decay={1.2} />
       )}
 
       <mesh rotation={[-Math.PI / 2, 0, 0]}>
@@ -678,6 +708,12 @@ export function GameScene({
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02, 0]}>
         <ringGeometry args={[2.8, 5, 32]} />
         <meshBasicMaterial color="#ff0044" transparent opacity={0.1} />
+      </mesh>
+
+      {/* Laser beam (directional, only visible during ult) */}
+      <mesh ref={laserRef} visible={false}>
+        <boxGeometry args={[0.18, 0.18, ARENA * 2]} />
+        <meshBasicMaterial color="#ff0066" transparent opacity={0.9} />
       </mesh>
 
       {/* Player */}
@@ -706,7 +742,7 @@ export function GameScene({
         </group>
       ))}
 
-      {/* Collectible hearts */}
+      {/* Collectible hearts (dropped by gremlins) */}
       {heartIds.map(id => (
         <mesh key={id} ref={(el: THREE.Mesh | null) => {
           if (el) heartMap.current.set(id, el); else heartMap.current.delete(id);

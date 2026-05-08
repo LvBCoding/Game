@@ -16,13 +16,13 @@ import type { PlayerClass, Upgrades } from "@/components/game/GameWorld";
 const MAX_HARVEST_LEVEL = 5;
 
 // ─── Wave preview helpers (must match GameScene) ──────────────────────────────
-function nextGremlins(w: number)     { return 8 + (w - 1) * 5; }
+function nextGremlinCount(w: number)  { return 15 + (w - 1) * 7; }
 function nextGremlinHp(w: number)    { return 1 + Math.floor(w / 5); }
-function nextSpawnInterval(w: number){ return Math.max(0.8, 2.4 - (w - 1) * 0.2).toFixed(1); }
+function nextSpawnInterval(w: number){ return Math.max(0.35, 1.6 - (w - 1) * 0.12).toFixed(1); }
 function nextGremlinSpeed(w: number) { return (1.4 + (w - 1) * 0.28).toFixed(1); }
 
 // ─── Cost functions ───────────────────────────────────────────────────────────
-function classicFireInterval(lvl: number) { return Math.max(0.1, 1.0 - lvl * 0.18).toFixed(2); }
+function classicFireInterval(lvl: number) { return Math.max(0.1, 1.5 - lvl * 0.18).toFixed(2); }
 
 function attackCost(lvl: number)      { return 10 + lvl * 8; }
 function damageCost(lvl: number)      { return 12 + lvl * 10; }
@@ -109,7 +109,7 @@ export function ShopScreen({
     : "#cc44ff";
 
   // ── Wave preview stats ────────────────────────────────────────────────────
-  const nGremlins = nextGremlins(nextWave);
+  const nGremlins = nextGremlinCount(nextWave);
   const nHp       = nextGremlinHp(nextWave);
   const nSpawn    = nextSpawnInterval(nextWave);
   const nSpeed    = nextGremlinSpeed(nextWave);
