@@ -33,7 +33,7 @@ const COMBO_WINDOW = 1.5;
 
 // Classic / Heartbreaker
 const CLASSIC_PROJ_SPEED  = 28;
-const CLASSIC_BASE_FIRE   = 1.5;  // slightly faster than original 1.8
+const CLASSIC_BASE_FIRE   = 1.3;  // slightly faster than original 1.8
 const CLASSIC_MIN_FIRE    = 0.1;
 const CLASSIC_FIRE_RANGE  = 14;
 const CLASSIC_PROJ_RADIUS = 0.28;
