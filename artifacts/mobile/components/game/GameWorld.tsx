@@ -1,4 +1,3 @@
-import { Canvas } from "@react-three/fiber";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
 
@@ -7,7 +6,7 @@ import { Joystick } from "@/components/ui/Joystick";
 import { ClassSelectScreen } from "@/components/ui/ClassSelectScreen";
 import { ShopScreen } from "@/components/ui/ShopScreen";
 import { addScore, getLeaderboard, ScoreEntry } from "@/utils/leaderboard";
-import { GameScene } from "./GameScene";
+import { GameScene2D } from "./GameScene2D";
 
 export type PlayerClass = "classic" | "gatling" | "sniper" | "shotgunner";
 
@@ -148,23 +147,16 @@ export default function GameWorld() {
 
   return (
     <View style={styles.root}>
-      <Canvas
+      <GameScene2D
         key={gameKey}
-        style={StyleSheet.absoluteFillObject}
-        gl={{ antialias: false }}
-        dpr={[1, 1.5]}
-        camera={{ position: [0, 32, 0.001], fov: 55, near: 0.1, far: 300 }}
-      >
-        <GameScene
-          joystickRef={joystickRef}
-          upgradesRef={upgradesRef}
-          nextWaveRef={nextWaveRef}
-          ultActivateRef={ultActivateRef}
-          playerClass={selectedClass}
-          onHudUpdate={handleHudUpdate}
-          onWaveClear={handleWaveClear}
-        />
-      </Canvas>
+        joystickRef={joystickRef}
+        upgradesRef={upgradesRef}
+        nextWaveRef={nextWaveRef}
+        ultActivateRef={ultActivateRef}
+        playerClass={selectedClass}
+        onHudUpdate={handleHudUpdate}
+        onWaveClear={handleWaveClear}
+      />
 
       <View style={styles.overlay}>
         {!shopOpen && (
@@ -198,6 +190,6 @@ export default function GameWorld() {
 }
 
 const styles = StyleSheet.create({
-  root:    { flex: 1, backgroundColor: "#0d0021" },
+  root:    { flex: 1, backgroundColor: "#07000f" },
   overlay: { ...StyleSheet.absoluteFillObject, zIndex: 10 },
 });
