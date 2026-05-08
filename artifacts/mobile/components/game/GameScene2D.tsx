@@ -63,7 +63,7 @@ const SHOTGUN_FIRE_RANGE = 8;
 const SHOTGUN_DAMAGE     = 3.0;
 const SHOTGUN_TTL        = 0.58;
 
-function gremlinsForWave(w: number)     { return 15 + (w - 1) * 7; }
+function gremlinsForWave(w: number)     { return 8 + (w - 1) * 4; }
 function gremlinHpForWave(w: number)    { return 1 + Math.floor(w / 5); }
 function spawnIntervalForWave(w: number){ return Math.max(0.35, 1.6 - (w - 1) * 0.12); }
 function gremlinSpeedForWave(w: number) { return 1.4 + (w - 1) * 0.28; }
@@ -175,39 +175,30 @@ function pxCircle(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: numb
   ctx.fillRect(rcx - Math.round(rr * 0.85), rcy - Math.round(rr * 0.85), Math.round(rr * 1.7), Math.round(rr * 1.7));
 }
 
-// Draw a pixel heart shape
+// Draw a smooth heart shape using bezier curves
+function drawHeartPath(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number) {
+  const s = size;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy + s * 0.35);
+  ctx.bezierCurveTo(cx,          cy - s * 0.1,  cx - s * 0.5, cy - s * 0.55, cx - s * 0.5, cy - s * 0.1);
+  ctx.bezierCurveTo(cx - s * 0.5, cy - s * 0.65, cx,           cy - s * 0.65, cx,            cy - s * 0.1);
+  ctx.bezierCurveTo(cx,           cy - s * 0.65, cx + s * 0.5,  cy - s * 0.65, cx + s * 0.5, cy - s * 0.1);
+  ctx.bezierCurveTo(cx + s * 0.5, cy - s * 0.55, cx,            cy - s * 0.1,  cx,            cy + s * 0.35);
+  ctx.closePath();
+}
+
+// Draw a small pixel heart shape (for collectibles)
 function drawPixelHeart(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number, fill: string, outline?: string) {
-  const s = Math.round(size);
-  const x = Math.round(cx - s);
-  const y = Math.round(cy - s * 0.8);
-  // pixel heart pattern scaled by s/4
-  const u = Math.max(1, Math.round(s / 4));
-  const pat = [
-    [1,1,0,0,1,1],
-    [1,1,1,1,1,1],
-    [1,1,1,1,1,1],
-    [0,1,1,1,1,0],
-    [0,0,1,1,0,0],
-    [0,0,0,0,0,0],
-  ];
+  const s = size;
   if (outline) {
-    ctx.fillStyle = outline;
-    for (let row = 0; row < pat.length; row++) {
-      for (let col = 0; col < pat[row].length; col++) {
-        if (pat[row][col]) {
-          ctx.fillRect(x + col * u - 1, y + row * u - 1, u + 2, u + 2);
-        }
-      }
-    }
+    ctx.strokeStyle = outline;
+    ctx.lineWidth = 2;
+    drawHeartPath(ctx, cx, cy, s);
+    ctx.stroke();
   }
   ctx.fillStyle = fill;
-  for (let row = 0; row < pat.length; row++) {
-    for (let col = 0; col < pat[row].length; col++) {
-      if (pat[row][col]) {
-        ctx.fillRect(x + col * u, y + row * u, u, u);
-      }
-    }
-  }
+  drawHeartPath(ctx, cx, cy, s);
+  ctx.fill();
 }
 
 // Draw player sprite
@@ -355,31 +346,77 @@ function drawPillar(ctx: CanvasRenderingContext2D, sx: number, sy: number, scale
 
 // Draw giant heart at center
 function drawGiantHeart(ctx: CanvasRenderingContext2D, sx: number, sy: number, hp: number, t: number, scale: number) {
-  const pulse = 1 + Math.sin(t * 3) * 0.04;
-  const size = scale * 2.5 * pulse;
-  const glow = Math.round(size * 0.2);
+  const pulse = 1 + Math.sin(t * 3) * 0.05;
+  const size = scale * 2.2 * pulse;
+  const cx = Math.round(sx);
+  const cy = Math.round(sy);
 
-  // Outer glow ring
-  ctx.fillStyle = `rgba(255,0,68,${0.08 + Math.sin(t * 2) * 0.04})`;
-  const glowSize = size * 1.8;
-  drawPixelHeart(ctx, sx, sy - size * 0.1, glowSize, `rgba(255,0,68,0.08)`);
+  // Outer glow
+  ctx.save();
+  ctx.globalAlpha = 0.15 + Math.sin(t * 2) * 0.05;
+  ctx.fillStyle = "#ff0044";
+  drawHeartPath(ctx, cx, cy, size * 1.35);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.restore();
 
   // Shadow
-  ctx.fillStyle = "rgba(0,0,0,0.4)";
-  ctx.fillRect(Math.round(sx) - Math.round(size) + 4, Math.round(sy) + Math.round(size * 0.4) + 4, Math.round(size) * 2, Math.round(size * 0.4));
+  ctx.save();
+  ctx.globalAlpha = 0.35;
+  ctx.fillStyle = "#000000";
+  drawHeartPath(ctx, cx + 5, cy + 6, size * 0.95);
+  ctx.fill();
+  ctx.restore();
 
-  // Main heart
-  drawPixelHeart(ctx, sx, sy - size * 0.1, size, "#ff0044", "#880022");
+  // Main heart fill
+  const grad = ctx.createRadialGradient(cx - size * 0.15, cy - size * 0.1, size * 0.05, cx, cy, size * 0.9);
+  grad.addColorStop(0, "#ff4488");
+  grad.addColorStop(0.5, "#ff0044");
+  grad.addColorStop(1, "#880022");
+  ctx.fillStyle = grad;
+  drawHeartPath(ctx, cx, cy, size);
+  ctx.fill();
 
-  // Highlight
-  const hx = Math.round(sx) - Math.round(size * 0.5);
-  const hy = Math.round(sy) - Math.round(size * 0.9);
-  ctx.fillStyle = "rgba(255,100,150,0.4)";
-  ctx.fillRect(hx, hy, Math.round(size * 0.4), Math.round(size * 0.3));
+  // Outline
+  ctx.strokeStyle = "#cc0033";
+  ctx.lineWidth = 2;
+  drawHeartPath(ctx, cx, cy, size);
+  ctx.stroke();
 
-  // Center shine
-  ctx.fillStyle = "rgba(255,200,220,0.6)";
-  ctx.fillRect(Math.round(sx) - 2, Math.round(sy) - Math.round(size * 0.3), 4, 4);
+  // Shine highlight
+  ctx.save();
+  ctx.globalAlpha = 0.5;
+  ctx.fillStyle = "rgba(255,180,200,0.7)";
+  drawHeartPath(ctx, cx - size * 0.12, cy - size * 0.18, size * 0.4);
+  ctx.fill();
+  ctx.restore();
+
+  // Health bar below the heart
+  const hpPct = Math.max(0, hp / GIANT_HP_MAX);
+  const barW = Math.round(size * 2.4);
+  const barH = Math.max(6, Math.round(scale * 0.22));
+  const barX = cx - Math.round(barW / 2);
+  const barY = cy + Math.round(size * 0.55);
+
+  // Bar background
+  ctx.fillStyle = "#330011";
+  ctx.fillRect(barX - 1, barY - 1, barW + 2, barH + 2);
+
+  // Bar fill (green→yellow→red based on hp)
+  const barColor = hpPct > 0.6 ? "#ff2255" : hpPct > 0.3 ? "#ff8800" : "#ff0000";
+  ctx.fillStyle = barColor;
+  ctx.fillRect(barX, barY, Math.round(barW * hpPct), barH);
+
+  // Bar shine
+  ctx.fillStyle = "rgba(255,255,255,0.15)";
+  ctx.fillRect(barX, barY, Math.round(barW * hpPct), Math.round(barH / 2));
+
+  // HP label
+  ctx.fillStyle = "#ffffff";
+  ctx.font = `bold ${Math.max(9, Math.round(scale * 0.18))}px monospace`;
+  ctx.textAlign = "center";
+  ctx.fillText(`♥ ${Math.ceil(hp)}`, cx, barY + barH + Math.round(scale * 0.2) + 2);
+  ctx.textAlign = "left";
 }
 
 // Draw floor tiles
