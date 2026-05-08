@@ -37,7 +37,7 @@ const CLASSIC_PROJ_RADIUS = 0.28;
 const CLASSIC_BASE_DMG    = 0.75;
 const MAX_HARVEST_LEVEL   = 5;
 
-const CLASSIC_ULT_DURATION = 5.0;
+const CLASSIC_ULT_DURATION = 3.0;
 const CLASSIC_ULT_DPS      = 12;
 const LASER_HIT_WIDTH      = 3;
 function ultThreshold(wave: number) { return 8 + Math.floor((wave - 1) / 3) * 4; }
@@ -462,7 +462,7 @@ function drawProjectile(ctx: CanvasRenderingContext2D, sx: number, sy: number, p
   ctx.fillRect(cx - Math.max(1, Math.round(r * 0.4)), cy - Math.max(1, Math.round(r * 0.4)), Math.max(1, Math.round(r * 0.5)), Math.max(1, Math.round(r * 0.5)));
 }
 
-// Draw laser beam
+// Draw laser beam (fires in the +y direction of local space, which matches world +z after rotation)
 function drawLaser(ctx: CanvasRenderingContext2D, px: number, py: number, facing: number, scale: number, W: number, H: number, t: number) {
   ctx.save();
   ctx.translate(px, py);
@@ -471,10 +471,10 @@ function drawLaser(ctx: CanvasRenderingContext2D, px: number, py: number, facing
   const beamL = Math.round(ARENA * 2 * scale);
   ctx.globalAlpha = 0.7 + Math.sin(t * 30) * 0.15;
   ctx.fillStyle = "#ff0066";
-  ctx.fillRect(-Math.round(beamW / 2), -beamL, beamW, beamL);
+  ctx.fillRect(-Math.round(beamW / 2), 0, beamW, beamL);
   ctx.globalAlpha = 0.4;
   ctx.fillStyle = "#ff99cc";
-  ctx.fillRect(-Math.round(beamW / 4), -beamL, Math.round(beamW / 2), beamL);
+  ctx.fillRect(-Math.round(beamW / 4), 0, Math.round(beamW / 2), beamL);
   ctx.globalAlpha = 1;
   ctx.restore();
 }
@@ -571,26 +571,17 @@ export function GameScene2D({
       const upg = upgradesRef.current;
 
       // ── Scale & camera ──────────────────────────────────────────────────────
-      const isSniper = playerClass === "sniper";
-      const targetScale = isSniper
-        ? Math.min(W, H) / (ARENA * 2.2)
-        : 14 * (window.devicePixelRatio || 1);
+      // Camera is always locked at world center (0,0).
+      // Scale so the full arena fits exactly inside the canvas with no outside visible.
+      const scale = Math.min(W, H) / (ARENA * 2);
 
-      const scale = targetScale;
+      // Camera shake during ult
+      const shakeMag = g.ultActive ? scale * 0.18 : 0;
+      const shakeX = g.ultActive ? (Math.random() - 0.5) * shakeMag : 0;
+      const shakeZ = g.ultActive ? (Math.random() - 0.5) * shakeMag : 0;
 
-      // Camera lerp toward player (or center for sniper)
-      const targetCamX = isSniper ? 0 : g.player.pos.x;
-      const targetCamZ = isSniper ? 0 : g.player.pos.z;
-      const lerpRate = Math.min(dt * 6, 1);
-      camPos.current.x += (targetCamX - camPos.current.x) * lerpRate;
-      camPos.current.z += (targetCamZ - camPos.current.z) * lerpRate;
-
-      // Add ult screen shake
-      const shakeX = g.ultActive ? (Math.random() - 0.5) * 3 : 0;
-      const shakeZ = g.ultActive ? (Math.random() - 0.5) * 3 : 0;
-
-      const camX = camPos.current.x;
-      const camZ = camPos.current.z;
+      const camX = 0;
+      const camZ = 0;
 
       // World → Screen helper
       const toSX = (wx: number) => W / 2 + (wx - camX) * scale + shakeX;
@@ -907,9 +898,20 @@ export function GameScene2D({
 
       ctx.clearRect(0, 0, W, H);
 
-      // Background fill for out-of-arena areas
+      // Letterbox / fill outside-arena area with solid black
       ctx.fillStyle = "#07000f";
       ctx.fillRect(0, 0, W, H);
+
+      // Compute arena bounds in screen space (camera is always at 0,0)
+      const arenaLeft   = Math.round(W / 2 - ARENA * scale + shakeX);
+      const arenaTop    = Math.round(H / 2 - ARENA * scale + shakeZ);
+      const arenaSize   = Math.round(ARENA * 2 * scale);
+
+      // Clip all game rendering to the arena rectangle
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(arenaLeft, arenaTop, arenaSize, arenaSize);
+      ctx.clip();
 
       // Floor tiles
       drawFloor(ctx, camX, camZ, scale, W, H, t);
@@ -984,12 +986,20 @@ export function GameScene2D({
         ctx.setLineDash([]);
       }
 
-      // Vignette effect
+      // End arena clip
+      ctx.restore();
+
+      // Vignette effect (drawn over the full canvas, outside clip)
       const vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.max(W, H) * 0.75);
       vg.addColorStop(0, "rgba(0,0,0,0)");
       vg.addColorStop(1, "rgba(0,0,14,0.7)");
       ctx.fillStyle = vg;
       ctx.fillRect(0, 0, W, H);
+
+      // Arena border glow (drawn after clip restore so it's always sharp)
+      ctx.strokeStyle = "#6600aa";
+      ctx.lineWidth = 3;
+      ctx.strokeRect(arenaLeft, arenaTop, arenaSize, arenaSize);
 
       animId = requestAnimationFrame(frame);
     };
