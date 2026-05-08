@@ -21,7 +21,7 @@ const GREMLIN_HIT_R      = 1.3;
 const GIANT_ATTACK_R     = 2.9;
 const GIANT_PROJ_BLOCK_R = 2.8;   // projectiles die inside this radius
 const GIANT_HP_MAX       = 100;
-const GREMLIN_DMG        = 20;
+const GREMLIN_DMG        = 10;
 const MAX_GREMLINS       = 30;
 const MAX_HEARTS         = 30;
 const MAGNET_DURATION    = 3.5;
@@ -34,16 +34,16 @@ const COMBO_WINDOW = 1.5;
 // Classic / Heartbreaker
 const CLASSIC_PROJ_SPEED  = 28;
 const CLASSIC_BASE_FIRE   = 1.3;  // slightly faster than original 1.8
-const CLASSIC_MIN_FIRE    = 0.1;
+const CLASSIC_MIN_FIRE    = .3;
 const CLASSIC_FIRE_RANGE  = 14;
 const CLASSIC_PROJ_RADIUS = 0.28;
-const CLASSIC_BASE_DMG    = 0.5;  // 2 hits to kill wave-1 gremlins
+const CLASSIC_BASE_DMG    = .75;  // 2 hits to kill wave-1 gremlins
 const MAX_HARVEST_LEVEL   = 5;
 
 // Classic Ultimate
 const CLASSIC_ULT_DURATION = 5.0;
 const CLASSIC_ULT_DPS      = 12;
-const LASER_HIT_WIDTH      = 1.5;
+const LASER_HIT_WIDTH      = 3;
 function ultThreshold(wave: number) { return 8 + Math.floor((wave - 1) / 3) * 4; }
 
 // Gatling (UNCHANGED)
@@ -342,8 +342,8 @@ export function GameScene({
 
     // ── Player movement ───────────────────────────────────────────────────────
     const joy = joystickRef.current;
-    if (Math.hypot(joy.dx, joy.dz) > 0.05) {
-      const sp = PLAYER_SPEED * dt;
+      if (Math.hypot(joy.dx, joy.dz) > 0.05) {
+        const sp = (g.ultActive ? PLAYER_SPEED * 0.4 : PLAYER_SPEED) * dt;
       g.player.pos.x = Math.max(-ARENA, Math.min(ARENA, g.player.pos.x + joy.dx * sp));
       g.player.pos.z = Math.max(-ARENA, Math.min(ARENA, g.player.pos.z + joy.dz * sp));
       g.player.facing = Math.atan2(joy.dx, joy.dz);
@@ -632,8 +632,12 @@ export function GameScene({
       camera.up.set(0, 0, -1);
       camera.lookAt(0, 0, 0);
     } else {
+      const shakeX = g.ultActive ? (Math.random() - 0.5) * 0.4 : 0;
+      const shakeZ = g.ultActive ? (Math.random() - 0.5) * 0.4 : 0;
       _camTgt.set(g.player.pos.x, 32, g.player.pos.z);
       camera.position.lerp(_camTgt, Math.min(dt * 5, 1));
+      camera.position.x += shakeX;
+      camera.position.z += shakeZ;
       camera.up.set(0, 0, -1);
       camera.lookAt(g.player.pos.x, 0, g.player.pos.z);
     }
@@ -709,7 +713,7 @@ export function GameScene({
 
       {/* Laser beam (directional, only visible during ult) */}
       <mesh ref={laserRef} visible={false}>
-        <boxGeometry args={[0.18, 0.18, ARENA * 2]} />
+        <boxGeometry args={[0.6, 0.6, ARENA * 2]} />
         <meshBasicMaterial color="#ff0066" transparent opacity={0.9} />
       </mesh>
 
