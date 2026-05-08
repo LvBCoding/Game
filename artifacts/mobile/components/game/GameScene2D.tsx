@@ -940,7 +940,7 @@ export function GameScene2D({
         }
 
         // ── Gatling spin drain on wave clear ──────────────────────────────────
-        if (playerClass === "gatling" && g.gatlingFireInt < g.gatlingWaveClearTarget) {
+        if (playerClass === "gatling" && g.phase === "waveclear" && g.gatlingFireInt < g.gatlingWaveClearTarget) {
           const drainRate = (GATLING_BASE_FIRE - GATLING_MIN_FIRE) * 0.05;
           g.gatlingFireInt = Math.min(g.gatlingWaveClearTarget, g.gatlingFireInt + drainRate * dt);
         }
