@@ -97,7 +97,6 @@ interface GS {
   magnetTimer:      number;
   gatlingFireInt:         number;
   gatlingNoTgtT:          number;
-  gatlingRampEff:         number;
   gatlingWaveClearTarget: number;
   ultKills:  number;
   ultActive: boolean;
@@ -120,7 +119,6 @@ function initGS(wave = 1, giantHp = GIANT_HP_MAX, hearts = 0): GS {
     magnetActive: false, magnetTimer: 0,
     gatlingFireInt: GATLING_BASE_FIRE,
     gatlingNoTgtT: 0,
-    gatlingRampEff: 1.0,
     gatlingWaveClearTarget: GATLING_BASE_FIRE,
     ultKills: 0,
     ultActive: false,
@@ -654,7 +652,6 @@ export function GameScene2D({
         g.magnetActive = false; g.magnetTimer = 0;
         g.gatlingFireInt = g.gatlingWaveClearTarget;
         g.gatlingNoTgtT  = 0;
-        g.gatlingRampEff = 1.0;
         g.ultActive = false; g.ultTimer = 0;
         g.comboCount = 0; g.comboTimer = 100;
       }
@@ -754,76 +751,74 @@ export function GameScene2D({
         }
 
         // ── Auto-fire ─────────────────────────────────────────────────────────
-        if (playerClass === "classic" && !g.ultActive) {
-          const fireInt = Math.max(CLASSIC_MIN_FIRE, CLASSIC_BASE_FIRE - upg.attackLevel * 0.18);
-          g.fireT -= dt;
-          if (g.fireT <= 0) {
-            g.fireT = fireInt;
-            let nearest: GremlinData | null = null, nearestDist = Infinity;
-            for (const gr of g.gremlins) {
-              const d = g.player.pos.distanceTo(gr.pos);
-              if (d < nearestDist && d <= CLASSIC_FIRE_RANGE) { nearestDist = d; nearest = gr; }
-            }
-            if (nearest) {
-              _dir.subVectors(nearest.pos, g.player.pos).normalize();
-              g.player.facing = Math.atan2(_dir.x, _dir.z);
-              g.projs.push({ id: uid(), pos: new THREE.Vector3(g.player.pos.x, 0.8, g.player.pos.z), dir: _dir.clone() });
-            }
-          }
-
-        } else if (playerClass === "gatling") {
+        // Helper: find nearest gremlin within range
+        const findNearest = (range: number): GremlinData | null => {
           let nearest: GremlinData | null = null, nearestDist = Infinity;
           for (const gr of g.gremlins) {
             const d = g.player.pos.distanceTo(gr.pos);
-            if (d < nearestDist && d <= GATLING_FIRE_RANGE) { nearestDist = d; nearest = gr; }
+            if (d < nearestDist && d <= range) { nearestDist = d; nearest = gr; }
           }
+          return nearest;
+        };
+
+        if (playerClass === "classic" && !g.ultActive) {
+          const fireInt = Math.max(CLASSIC_MIN_FIRE, CLASSIC_BASE_FIRE - upg.attackLevel * 0.18);
+          const nearest = findNearest(CLASSIC_FIRE_RANGE);
           if (nearest) {
-            g.gatlingNoTgtT = 0;
+            // Only count down timer while a target is in range
             g.fireT -= dt;
-            let _gShots = 0;
-            while (g.fireT <= 0 && _gShots < 5) {
-              _gShots++;
-              g.fireT += g.gatlingFireInt;
-              const baseReduction = 0.25 + upg.cooldownLevel * 0.06;
-              const reductionPct  = baseReduction * g.gatlingRampEff;
-              g.gatlingFireInt = Math.max(GATLING_MIN_FIRE, g.gatlingFireInt * (1 - reductionPct));
-              g.gatlingRampEff = Math.max(GATLING_EFF_MIN, g.gatlingRampEff - GATLING_EFF_DECAY);
+            if (g.fireT <= 0) {
+              g.fireT = fireInt;
               _dir.subVectors(nearest.pos, g.player.pos).normalize();
               g.player.facing = Math.atan2(_dir.x, _dir.z);
               g.projs.push({ id: uid(), pos: new THREE.Vector3(g.player.pos.x, 0.8, g.player.pos.z), dir: _dir.clone() });
             }
           } else {
-            const drainRate = (GATLING_BASE_FIRE - GATLING_MIN_FIRE) * 0.10;
-            g.gatlingFireInt = Math.min(GATLING_BASE_FIRE, g.gatlingFireInt + drainRate * dt);
-            g.gatlingRampEff = Math.min(1.0, g.gatlingRampEff + dt * 0.4);
+            // No target — keep timer ready so first shot fires immediately when one appears
+            g.fireT = 0;
           }
 
-        } else if (playerClass === "sniper") {
-          g.fireT -= dt;
-          if (g.fireT <= 0) {
-            g.fireT = SNIPER_BASE_FIRE;
-            let nearest: GremlinData | null = null, nearestDist = Infinity;
-            for (const gr of g.gremlins) {
-              const d = g.player.pos.distanceTo(gr.pos);
-              if (d < nearestDist && d <= SNIPER_FIRE_RANGE) { nearestDist = d; nearest = gr; }
-            }
-            if (nearest) {
+        } else if (playerClass === "gatling") {
+          const nearest = findNearest(GATLING_FIRE_RANGE);
+          if (nearest) {
+            // Ramp up spin: fixed reduction per shot (no diminishing returns)
+            g.fireT -= dt;
+            let _gShots = 0;
+            while (g.fireT <= 0 && _gShots < 5) {
+              _gShots++;
+              g.fireT += g.gatlingFireInt;
+              const rampAmt = 0.06 + upg.cooldownLevel * 0.015;
+              g.gatlingFireInt = Math.max(GATLING_MIN_FIRE, g.gatlingFireInt - rampAmt * g.gatlingFireInt);
               _dir.subVectors(nearest.pos, g.player.pos).normalize();
               g.player.facing = Math.atan2(_dir.x, _dir.z);
               g.projs.push({ id: uid(), pos: new THREE.Vector3(g.player.pos.x, 0.8, g.player.pos.z), dir: _dir.clone() });
             }
+          } else {
+            // No target — spin down
+            const drainRate = (GATLING_BASE_FIRE - GATLING_MIN_FIRE) * 0.12;
+            g.gatlingFireInt = Math.min(GATLING_BASE_FIRE, g.gatlingFireInt + drainRate * dt);
+          }
+
+        } else if (playerClass === "sniper") {
+          const nearest = findNearest(SNIPER_FIRE_RANGE);
+          if (nearest) {
+            g.fireT -= dt;
+            if (g.fireT <= 0) {
+              g.fireT = SNIPER_BASE_FIRE;
+              _dir.subVectors(nearest.pos, g.player.pos).normalize();
+              g.player.facing = Math.atan2(_dir.x, _dir.z);
+              g.projs.push({ id: uid(), pos: new THREE.Vector3(g.player.pos.x, 0.8, g.player.pos.z), dir: _dir.clone() });
+            }
+          } else {
+            g.fireT = 0;
           }
 
         } else if (playerClass === "shotgunner") {
-          g.fireT -= dt;
-          if (g.fireT <= 0) {
-            g.fireT = SHOTGUN_BASE_FIRE;
-            let nearest: GremlinData | null = null, nearestDist = Infinity;
-            for (const gr of g.gremlins) {
-              const d = g.player.pos.distanceTo(gr.pos);
-              if (d < nearestDist && d <= SHOTGUN_FIRE_RANGE) { nearestDist = d; nearest = gr; }
-            }
-            if (nearest) {
+          const nearest = findNearest(SHOTGUN_FIRE_RANGE);
+          if (nearest) {
+            g.fireT -= dt;
+            if (g.fireT <= 0) {
+              g.fireT = SHOTGUN_BASE_FIRE;
               const baseAngle  = Math.atan2(nearest.pos.x - g.player.pos.x, nearest.pos.z - g.player.pos.z);
               g.player.facing  = baseAngle;
               const numBullets = 3 + upg.spreadLevel;
@@ -835,6 +830,8 @@ export function GameScene2D({
                 g.projs.push({ id: uid(), pos: new THREE.Vector3(g.player.pos.x, 0.8, g.player.pos.z), dir: bDir, ttl: SHOTGUN_TTL });
               }
             }
+          } else {
+            g.fireT = 0;
           }
         }
 
